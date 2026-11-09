@@ -44,6 +44,8 @@ const demo = forcedDemo || !key;
 const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 const host = (process.env.HOST || (onRailway ? '0.0.0.0' : '127.0.0.1')).trim();
 const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+// Optional: let anyone browse without a login. Only honored for simulated data, never for a live feed.
+const wantsPublicView = process.env.PUBLIC_VIEW === '1';
 const publicDomain = (process.env.RAILWAY_PUBLIC_DOMAIN || '').trim();
 
 export const config = {
@@ -51,6 +53,8 @@ export const config = {
   host,
   loopback,
   publicUrl: publicDomain ? `https://${publicDomain}` : null,
+  publicView: wantsPublicView && demo,
+  publicViewIgnored: wantsPublicView && !demo,
   accessPassword: (process.env.ACCESS_PASSWORD || '').trim(),
   port: num('PORT', 8787),
   openBrowser: argv.includes('--open'),

@@ -49,6 +49,8 @@ The server detects Railway, listens on all interfaces and uses the `PORT` Railwa
 3. Under Settings > Networking, generate a public domain, then open it.
 4. The browser asks for a login. Enter any username and your password.
 
+**Public demo for friends.** Set `DEMO=1` and `PUBLIC_VIEW=1`. Anyone with the URL can browse the simulated market with no login, but trading, the kill switch and settings are turned off, and your paper account is never sent to them. To trade yourself, open `/login` on your site and enter your `ACCESS_PASSWORD`. `PUBLIC_VIEW` is ignored with live data, so a real feed always stays behind the password.
+
 Ten wrong passwords from one address in ten minutes locks that address out for a while. Without a volume, the paper account resets on each deploy.
 
 ## What's in it

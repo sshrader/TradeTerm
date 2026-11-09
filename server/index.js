@@ -118,7 +118,10 @@ function flush() {
   paperDirty = false;
   const base = { tokens: summaries, evicted, alerts, autos, paper: posDirty ? paper.view() : null, solUsd: market.solUsd };
   const baseStr = JSON.stringify(base);
+  // View-only visitors never see the owner's paper account or auto-exits.
+  const viewStr = JSON.stringify({ ...base, paper: null, autos: [] });
   const idle = !summaries.length && !evicted.length && !alerts.length && !autos.length && !base.paper;
+  const viewIdle = !summaries.length && !evicted.length && !alerts.length;
   for (const [id, c] of clients) {
     let sel = null;
     if (c.sel && dirtySet.has(c.sel)) {
@@ -135,9 +138,10 @@ function flush() {
         }
       }
     }
-    if (idle && !sel) continue;
+    if ((c.viewOnly ? viewIdle : idle) && !sel) continue;
+    const bs = c.viewOnly ? viewStr : baseStr;
     try {
-      c.res.write(`event: upd\ndata: ${sel ? baseStr.slice(0, -1) + ',"sel":' + JSON.stringify(sel) + '}' : baseStr}\n\n`);
+      c.res.write(`event: upd\ndata: ${sel ? bs.slice(0, -1) + ',"sel":' + JSON.stringify(sel) + '}' : bs}\n\n`);
     } catch {
       clients.delete(id);
     }
@@ -202,6 +206,12 @@ function authorized(req, res) {
     return false;
   }
   const h = String(req.headers.authorization || '');
+  // Public view: anyone may look; only a correct password (via /login) can trade. /login always asks for the password.
+  const viewer = config.publicView && !String(req.url).startsWith('/login');
+  if (viewer && !h.startsWith('Basic ')) {
+    req._viewOnly = true;
+    return true;
+  }
   if (h.startsWith('Basic ')) {
     const pass = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':').slice(1).join(':');
     if (crypto.timingSafeEqual(sha(pass), pwDigest)) {
@@ -210,6 +220,10 @@ function authorized(req, res) {
     }
     if (failures.size > 1000) failures.clear();
     failures.set(ip, { n: (recent ? f.n : 0) + 1, t: Date.now() });
+    if (viewer) {
+      req._viewOnly = true;
+      return true;
+    }
   }
   res.writeHead(401, { 'www-authenticate': 'Basic realm="Pulse terminal", charset="UTF-8"', 'content-type': 'text/plain; charset=utf-8', ...SEC });
   res.end('Password required');
@@ -289,16 +303,21 @@ function serveStatic(res, pathname) {
 }
 
 function handleEvents(req, res) {
+  if (clients.size >= 200) {
+    res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '10', ...SEC });
+    return res.end('Busy, try again shortly');
+  }
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no', ...SEC });
   const id = crypto.randomBytes(8).toString('hex');
-  clients.set(id, { res, sel: null, seq: 0, extraAt: 0 });
+  clients.set(id, { res, sel: null, seq: 0, extraAt: 0, viewOnly: Boolean(req._viewOnly) });
   res.write('retry: 2000\n\n');
   const now = Date.now();
   send(res, 'init', {
     cid: id,
     status: statusObj(),
     tokens: [...market.tokens.values()].map((t) => market.summary(t, now)),
-    paper: paper.view(),
+    paper: req._viewOnly ? null : paper.view(),
+    viewOnly: Boolean(req._viewOnly),
     watch: watchList(),
     solUsd: market.solUsd,
     config: publicConfig(),
@@ -335,6 +354,10 @@ async function route(req, res) {
   const p = url.pathname;
   const get = req.method === 'GET' || req.method === 'HEAD';
 
+  if (get && p === '/login') {
+    res.writeHead(302, { location: '/', 'cache-control': 'no-store', ...SEC });
+    return res.end();
+  }
   if (get && p === '/events') return handleEvents(req, res);
   if (get && p === '/api/status') return json(res, 200, statusObj());
 
@@ -365,6 +388,7 @@ async function route(req, res) {
       return fail(res, 404, 'Image unavailable');
     }
   }
+  if (get && req._viewOnly && (p === '/api/quote' || p === '/api/paper')) return fail(res, 403, 'View-only demo.');
   if (get && p === '/api/quote') {
     try {
       const q = paper.quote({ mint: url.searchParams.get('mint'), side: url.searchParams.get('side'), sol: url.searchParams.get('sol'), pct: url.searchParams.get('pct') });
@@ -378,6 +402,7 @@ async function route(req, res) {
   if (get && p === '/api/watch') return json(res, 200, { ok: true, watch: watchList() });
 
   if (req.method === 'POST') {
+    if (req._viewOnly && p !== '/api/verify') return fail(res, 403, 'View-only demo: trading and settings are turned off. The owner can sign in at /login.');
     let body;
     try {
       body = await readJson(req);
@@ -507,12 +532,13 @@ server.listen(config.port, config.host, async () => {
   }
   console.log(`  bind  : ${config.host}:${config.port}${config.loopback ? ' (this machine only)' : ''}`);
   if (pwDigest) {
-    console.log('  access: password required (any username)');
+    console.log(config.publicView ? '  access: PUBLIC view-only demo. Anyone can browse; trading needs the password at /login (any username)' : '  access: password required (any username)');
     if (generatedPassword) {
       console.log(`  ACCESS_PASSWORD is not set, so a random password was generated for this run: ${accessPassword}`);
       console.log('  Set ACCESS_PASSWORD to choose your own and keep it across restarts.');
     }
   }
+  if (config.publicViewIgnored) console.log('  PUBLIC_VIEW ignored: it only works with simulated data (set DEMO=1). Live data stays behind the password.');
   console.log(`  open  : ${url}\n`);
   refreshSol();
   setInterval(refreshSol, 60_000).unref();

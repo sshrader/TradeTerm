@@ -158,7 +158,8 @@ function onStatus(st) {
   const banner = $('#banner');
   if (st.mode === 'demo') {
     banner.hidden = false;
-    banner.textContent = st.demoReason === 'no-key'
+    if (S.viewOnly) banner.textContent = 'View-only demo. Simulated market, nothing here is real, and trading is turned off.';
+    else banner.textContent = st.demoReason === 'no-key'
       ? 'Simulated market. Nothing here is real. Set HELIUS_API_KEY (in .env locally, or as a variable on your host) and restart to switch to live pump.fun data.'
       : 'Simulated market (started with --demo). Nothing here is real.';
   } else if (st.stream.error) { banner.hidden = false; banner.textContent = 'Stream: ' + st.stream.error; }
@@ -903,6 +904,8 @@ function renderPositions() {
 /* ------------------------------------------------------------------ SSE */
 function onInit(d) {
   S.cid = d.cid;
+  S.viewOnly = Boolean(d.viewOnly);
+  document.body.classList.toggle('viewonly', S.viewOnly);
   S.tokens = new Map(d.tokens.map((t) => [t.mint, t]));
   S.paper = d.paper;
   S.watch = d.watch;
