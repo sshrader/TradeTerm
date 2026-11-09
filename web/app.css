@@ -88,6 +88,18 @@ button { cursor: pointer; }
 .dtools { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
 .dtools #dsearch { width: min(420px, 100%); }
 .dhint { color: var(--faint); font-size: 12px; margin-left: auto; }
+.dfilters { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--glass); border: 1px solid var(--line); border-radius: var(--r); }
+.frow { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; }
+.frow.fbot { align-items: center; }
+.ff { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ff > span { font-size: 11px; color: var(--faint); }
+.fi { position: relative; }
+.fi input { width: 104px; padding-right: 30px; }
+.fi i { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: 11px; color: var(--faint); pointer-events: none; }
+.fsp { flex: 1; }
+.fclear { width: auto; margin: 0; border: 1px solid var(--line2); background: transparent; border-radius: 9px; padding: 4px 12px; font-size: 12px; color: var(--dim); }
+.fclear:hover:not(:disabled) { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.fclear:disabled { opacity: 0.4; cursor: default; }
 .lanes { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .lane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-top: 2px solid var(--accent); }
 .lane header { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); flex-shrink: 0; }

@@ -299,6 +299,81 @@ const LANES = [
   { id: 'final', title: 'Final stretch', note: '70% or more of the way to graduating', accent: 'var(--amber)', empty: 'No token is close to graduating right now.' },
   { id: 'grad', title: 'Graduated', note: 'Completed the bonding curve since launch', accent: 'var(--buy)', empty: 'No token has graduated since launch yet.' },
 ];
+/* Filters apply to all three lanes. Values are kept as typed (strings) so inputs round-trip; "5k" and "1.2m" work. */
+const FILTERS = [
+  { k: 'mcMin', label: 'MC min', unit: 'mc' },
+  { k: 'mcMax', label: 'MC max', unit: 'mc' },
+  { k: 'volMin', label: 'Vol 5m min', unit: 'SOL' },
+  { k: 'holdersMin', label: 'Holders min' },
+  { k: 'top10Max', label: 'Top 10 max', unit: '%' },
+  { k: 'ageMax', label: 'Age max', unit: 'min' },
+  { k: 'progMin', label: 'Curve min', unit: '%' },
+  { k: 'chgMin', label: '5m change min', unit: '%' },
+];
+const FLAGS = [['noBundled', 'Hide bundled'], ['noDevSold', 'Hide dev sold']];
+const PRESETS = {
+  safe: { label: 'Sniper-safe', f: { holdersMin: '20', top10Max: '30', noBundled: true, noDevSold: true } },
+  momentum: { label: 'Momentum', f: { volMin: '10', chgMin: '20', ageMax: '15' } },
+  closing: { label: 'About to graduate', f: { progMin: '85', volMin: '5' } },
+};
+S.filters = store.get('filters', {});
+const num = (v) => {
+  if (v == null || v === '') return null;
+  const m = String(v).trim().toLowerCase().replace(/[$,%\s]/g, '').match(/^(\d*\.?\d+)([kmb]?)$/);
+  if (!m) return null;
+  return Number(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1);
+};
+function passesFilters(t, now) {
+  const f = S.filters;
+  const mc = mcVal(t.mcap);
+  const lo = (k, v) => { const n = num(f[k]); return n != null && !(v >= n); };
+  const hi = (k, v) => { const n = num(f[k]); return n != null && !(v <= n); };
+  if (lo('mcMin', mc) || hi('mcMax', mc)) return false;
+  if (lo('volMin', t.v5) || lo('holdersMin', t.holders)) return false;
+  if (num(f.top10Max) != null && (t.partial || hi('top10Max', t.top10 * 100))) return false; // partial tokens have no holder data
+  if (hi('ageMax', (now - t.createdAt) / 60000)) return false;
+  if (lo('progMin', t.prog * 100)) return false;
+  if (num(f.chgMin) != null && (t.chg5 == null || lo('chgMin', t.chg5))) return false;
+  if (f.noBundled && t.bundled) return false;
+  if (f.noDevSold && t.dev === 'sold_all') return false;
+  return true;
+}
+const filterCount = () => FILTERS.filter(({ k }) => num(S.filters[k]) != null).length + FLAGS.filter(([k]) => S.filters[k]).length;
+const filterRefs = { inputs: {}, flags: {} };
+function buildFilters() {
+  const box = $('#dfilters');
+  const save = () => { store.set('filters', S.filters); updateFilterBar(); renderBoard(true); };
+  const fields = FILTERS.map(({ k, label, unit }) => {
+    const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', spellcheck: 'false', placeholder: 'any', 'aria-label': label });
+    input.value = S.filters[k] ?? '';
+    input.addEventListener('input', () => { if (input.value.trim()) S.filters[k] = input.value; else delete S.filters[k]; save(); });
+    const u = el('i', {}, unit && unit !== 'mc' ? unit : '');
+    filterRefs.inputs[k] = { input, u, unit };
+    return el('label', { class: 'ff' }, el('span', {}, label), el('div', { class: 'fi' }, input, u));
+  });
+  const flags = FLAGS.map(([k, label]) => {
+    const cb = el('input', { type: 'checkbox' });
+    cb.checked = Boolean(S.filters[k]);
+    cb.addEventListener('change', () => { if (cb.checked) S.filters[k] = true; else delete S.filters[k]; save(); });
+    filterRefs.flags[k] = cb;
+    return el('label', { class: 'toggle' }, cb, el('span', {}, label));
+  });
+  const presets = el('div', { class: 'seg presets-seg' }, Object.entries(PRESETS).map(([id, p]) => el('button', { type: 'button', title: Object.entries(p.f).map(([k, v]) => `${k}: ${v}`).join(', '), onclick: () => { S.filters = { ...p.f }; syncFilterInputs(); save(); } }, p.label)));
+  const clear = el('button', { type: 'button', class: 'ghost fclear', onclick: () => { S.filters = {}; syncFilterInputs(); save(); } }, 'Clear filters');
+  filterRefs.clear = clear;
+  box.replaceChildren(el('div', { class: 'frow' }, ...fields), el('div', { class: 'frow fbot' }, ...flags, el('span', { class: 'fsp' }), el('span', { class: 'dim' }, 'Presets'), presets, clear));
+  updateFilterBar();
+}
+function syncFilterInputs() {
+  for (const [k, r] of Object.entries(filterRefs.inputs)) r.input.value = S.filters[k] ?? '';
+  for (const [k, cb] of Object.entries(filterRefs.flags)) cb.checked = Boolean(S.filters[k]);
+}
+function updateFilterBar() {
+  for (const r of Object.values(filterRefs.inputs)) if (r.unit === 'mc') r.u.textContent = useUsd() ? '$' : 'SOL';
+  const n = filterCount();
+  filterRefs.clear.textContent = n ? `Clear ${n} filter${n > 1 ? 's' : ''}` : 'Clear filters';
+  filterRefs.clear.disabled = !n;
+}
 const laneRefs = {};
 function buildLanes() {
   const box = $('#lanes');
@@ -317,10 +392,11 @@ function renderLanes(all, now, force) {
     if (L.id === 'new') arr = arr.filter((t) => t.prog < 0.7); // a token near graduation lives in Final stretch only
     if (q) arr = arr.filter((t) => matches(t, q));
     if (S.hideHigh) arr = arr.filter((t) => t.risk.level !== 'HIGH');
+    if (filterCount()) arr = arr.filter((t) => passesFilters(t, now));
     arr.sort(SORT[L.id]);
     const ref = laneRefs[L.id];
     ref.n.textContent = arr.length > 40 ? '40+' : String(arr.length);
-    syncList(ref.list, ref.rows, arr.slice(0, 40), force, q ? 'No token matches that search.' : L.empty);
+    syncList(ref.list, ref.rows, arr.slice(0, 40), force, q ? 'No token matches that search.' : filterCount() ? 'No token matches your filters. Loosen them or clear them.' : L.empty);
   }
 }
 function setView(v, mint) {
@@ -416,6 +492,7 @@ function unitChanged() {
   if (S.detail) chart.setStyle(chartOpts());
   const t = S.tokens.get(S.sel);
   if (t) updateHead(t);
+  updateFilterBar();
   renderBoard(true);
   renderEquity();
   if (S.dock === 'trades') redrawTrades();
@@ -771,6 +848,7 @@ const loadLW = () => new Promise((resolve) => {
 try { chart = (await loadLW()) ? new LWChart($('#chart')) : new Chart($('#chart')); } catch (err) { console.warn('Lightweight Charts failed, using the built-in chart.', err); chart = new Chart($('#chart')); }
 buildBoardTabs();
 buildLanes();
+buildFilters();
 document.querySelectorAll('#views button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 buildChartBar();
 buildDockTabs();
