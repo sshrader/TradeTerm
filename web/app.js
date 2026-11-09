@@ -258,7 +258,7 @@ function updateRow(r, t) {
 const matches = (t, q) => (t.symbol || '').toLowerCase().includes(q) || (t.name || '').toLowerCase().includes(q) || t.mint.toLowerCase().includes(q);
 
 /* Keeps a list element in step with `arr`, reusing row elements. Each list owns its own row map. */
-function syncList(list, rows, arr, force, emptyText) {
+function syncList(list, rows, arr, force, emptyText, mk = makeRow, up = updateRow) {
   const order = arr.map((t) => t.mint);
   const prev = list._order || [];
   const same = !force && order.length === prev.length && order.every((m, i) => m === prev[i]);
@@ -268,13 +268,13 @@ function syncList(list, rows, arr, force, emptyText) {
     list.querySelector('.empty')?.remove();
     arr.forEach((t, i) => {
       let r = rows.get(t.mint);
-      if (!r) { r = makeRow(t); rows.set(t.mint, r); }
+      if (!r) { r = mk(t); rows.set(t.mint, r); }
       if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
     });
     if (!arr.length) list.append(el('div', { class: 'empty' }, emptyText));
     list._order = order;
   }
-  for (const t of arr) updateRow(rows.get(t.mint), t);
+  for (const t of arr) up(rows.get(t.mint), t);
 }
 
 function renderBoard(force) {
@@ -295,37 +295,39 @@ function renderBoard(force) {
 }
 
 /* ------------------------------------------------------------------ dashboard swimlanes */
-const LANES = [
-  { id: 'new', title: 'New', note: 'Launched in the last 20 minutes', accent: 'var(--plasma)', empty: 'Nothing new yet. Launches appear here as they happen.' },
-  { id: 'final', title: 'Final stretch', note: '70% or more of the way to graduating', accent: 'var(--amber)', empty: 'No token is close to graduating right now.' },
-  { id: 'grad', title: 'Graduated', note: 'Completed the bonding curve since launch', accent: 'var(--buy)', empty: 'No token has graduated since launch yet.' },
-];
-/* Filters apply to all three lanes. Values are kept as typed (strings) so inputs round-trip; "5k" and "1.2m" work. */
+/* Each lane has its own search, quick-buy amount and filters. Filter values are kept as typed
+   (strings) so inputs round-trip; "5k" and "1.2m" work. */
 const FILTERS = [
-  { k: 'mcMin', label: 'MC min', unit: 'mc' },
-  { k: 'mcMax', label: 'MC max', unit: 'mc' },
-  { k: 'volMin', label: 'Vol 5m min', unit: 'SOL' },
+  { k: 'mcMin', label: 'Market cap min', unit: 'mc' },
+  { k: 'mcMax', label: 'Market cap max', unit: 'mc' },
+  { k: 'volMin', label: 'Volume 5m min', unit: 'SOL' },
   { k: 'holdersMin', label: 'Holders min' },
   { k: 'top10Max', label: 'Top 10 max', unit: '%' },
   { k: 'ageMax', label: 'Age max', unit: 'min' },
   { k: 'progMin', label: 'Curve min', unit: '%' },
   { k: 'chgMin', label: '5m change min', unit: '%' },
 ];
-const FLAGS = [['noBundled', 'Hide bundled'], ['noDevSold', 'Hide dev sold']];
+const FLAGS = [['noHigh', 'Hide high risk'], ['noBundled', 'Hide bundled'], ['noDevSold', 'Hide dev sold']];
 const PRESETS = {
   safe: { label: 'Sniper-safe', f: { holdersMin: '20', top10Max: '30', noBundled: true, noDevSold: true } },
   momentum: { label: 'Momentum', f: { volMin: '10', chgMin: '20', ageMax: '15' } },
   closing: { label: 'About to graduate', f: { progMin: '85', volMin: '5' } },
 };
-S.filters = store.get('filters', {});
+const LANES = [
+  { id: 'new', title: 'New', tone: 'var(--plasma)', empty: 'Nothing new yet. Launches appear here as they happen.', presets: ['safe', 'momentum'] },
+  { id: 'final', title: 'Final stretch', tone: 'var(--amber)', empty: 'No token is close to graduating right now.', presets: ['safe', 'closing'] },
+  { id: 'grad', title: 'Graduated', tone: 'var(--buy)', empty: 'No token has graduated since launch yet.', presets: ['safe'] },
+];
+const lanecfg = store.get('lanecfg', {});
+const cfgOf = (id) => (lanecfg[id] ||= { f: {}, q: '', amt: 0.1 });
+const saveCfg = () => store.set('lanecfg', lanecfg);
 const num = (v) => {
   if (v == null || v === '') return null;
   const m = String(v).trim().toLowerCase().replace(/[$,%\s]/g, '').match(/^(\d*\.?\d+)([kmb]?)$/);
   if (!m) return null;
   return Number(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1);
 };
-function passesFilters(t, now) {
-  const f = S.filters;
+function passesFilters(t, now, f) {
   const mc = mcVal(t.mcap);
   const lo = (k, v) => { const n = num(f[k]); return n != null && !(v >= n); };
   const hi = (k, v) => { const n = num(f[k]); return n != null && !(v <= n); };
@@ -335,69 +337,159 @@ function passesFilters(t, now) {
   if (hi('ageMax', (now - t.createdAt) / 60000)) return false;
   if (lo('progMin', t.prog * 100)) return false;
   if (num(f.chgMin) != null && (t.chg5 == null || lo('chgMin', t.chg5))) return false;
+  if (f.noHigh && t.risk.level === 'HIGH') return false;
   if (f.noBundled && t.bundled) return false;
   if (f.noDevSold && t.dev === 'sold_all') return false;
   return true;
 }
-const filterCount = () => FILTERS.filter(({ k }) => num(S.filters[k]) != null).length + FLAGS.filter(([k]) => S.filters[k]).length;
-const filterRefs = { inputs: {}, flags: {} };
-function buildFilters() {
-  const box = $('#dfilters');
-  const save = () => { store.set('filters', S.filters); updateFilterBar(); renderBoard(true); };
-  const fields = FILTERS.map(({ k, label, unit }) => {
-    const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', spellcheck: 'false', placeholder: 'any', 'aria-label': label });
-    input.value = S.filters[k] ?? '';
-    input.addEventListener('input', () => { if (input.value.trim()) S.filters[k] = input.value; else delete S.filters[k]; save(); });
-    const u = el('i', {}, unit && unit !== 'mc' ? unit : '');
-    filterRefs.inputs[k] = { input, u, unit };
-    return el('label', { class: 'ff' }, el('span', {}, label), el('div', { class: 'fi' }, input, u));
-  });
-  const flags = FLAGS.map(([k, label]) => {
-    const cb = el('input', { type: 'checkbox' });
-    cb.checked = Boolean(S.filters[k]);
-    cb.addEventListener('change', () => { if (cb.checked) S.filters[k] = true; else delete S.filters[k]; save(); });
-    filterRefs.flags[k] = cb;
-    return el('label', { class: 'toggle' }, cb, el('span', {}, label));
-  });
-  const presets = el('div', { class: 'seg presets-seg' }, Object.entries(PRESETS).map(([id, p]) => el('button', { type: 'button', title: Object.entries(p.f).map(([k, v]) => `${k}: ${v}`).join(', '), onclick: () => { S.filters = { ...p.f }; syncFilterInputs(); save(); } }, p.label)));
-  const clear = el('button', { type: 'button', class: 'ghost fclear', onclick: () => { S.filters = {}; syncFilterInputs(); save(); } }, 'Clear filters');
-  filterRefs.clear = clear;
-  box.replaceChildren(el('div', { class: 'frow' }, ...fields), el('div', { class: 'frow fbot' }, ...flags, el('span', { class: 'fsp' }), el('span', { class: 'dim' }, 'Presets'), presets, clear));
-  updateFilterBar();
+const filterCount = (f) => FILTERS.filter(({ k }) => num(f[k]) != null).length + FLAGS.filter(([k]) => f[k]).length;
+
+/* ---- token card used in the lanes */
+const tone = (cls, text, title) => el('span', { class: 'chip ' + cls, title }, text);
+function makeCard(t) {
+  const r = el('div', { class: 'tc fresh', role: 'button', tabindex: '0' });
+  const x = {
+    mint: t.mint, letter: t.symbol, px: 0,
+    av: avatar(t.mint, t.symbol),
+    bar: el('i'), mintTxt: el('small'),
+    sym: el('b', { class: 'tcsym' }), nm: el('span', { class: 'tcnm' }),
+    age: el('span', { class: 'chip age' }), holders: el('span', { class: 'tcm' }), flags: el('span', { class: 'tcflags' }),
+    mc: el('b', { class: 'tcmc' }), vol: el('span'), tx: el('span'), chg: el('span', { class: 'tcchg' }),
+    stats: el('div', { class: 'tcstats' }),
+    buy: el('button', { type: 'button', class: 'tcbuy' }, '⚡'),
+  };
+  x.buy.addEventListener('click', (e) => { e.stopPropagation(); quickBuy(t.mint, x.amt()); });
+  r.append(
+    el('div', { class: 'tcav' }, x.av, el('div', { class: 'tcbar' }, x.bar), x.mintTxt),
+    el('div', { class: 'tcmain' }, el('div', { class: 'tcl1' }, x.sym, x.nm), el('div', { class: 'tcl2' }, x.age, x.holders), x.flags),
+    el('div', { class: 'tcright' }, x.mc, el('div', { class: 'tcsub' }, el('span', {}, 'Vol ', x.vol), el('span', {}, 'Tx ', x.tx)), x.chg),
+    x.stats, x.buy);
+  r._r = x;
+  r.addEventListener('click', () => openToken(t.mint));
+  r.addEventListener('keydown', (e) => { if (e.key === 'Enter') openToken(t.mint); });
+  setTimeout(() => r.classList.remove('fresh'), 1500);
+  return r;
 }
-function syncFilterInputs() {
-  for (const [k, r] of Object.entries(filterRefs.inputs)) r.input.value = S.filters[k] ?? '';
-  for (const [k, cb] of Object.entries(filterRefs.flags)) cb.checked = Boolean(S.filters[k]);
+function updateCard(r, t) {
+  const x = r._r;
+  x.amt = () => num(cfgOf(r._lane).amt) || 0.1;
+  x.buy.title = `Paper buy ${x.amt()} SOL`;
+  const label = t.symbol || short(t.mint);
+  if (x.sym.textContent !== label) x.sym.textContent = label;
+  x.nm.textContent = t.name || '';
+  x.mintTxt.textContent = short(t.mint);
+  x.bar.style.width = (t.prog * 100).toFixed(1) + '%';
+  x.bar.parentNode.title = `Curve ${(t.prog * 100).toFixed(0)}% full`;
+  const ageMs = Date.now() - t.createdAt;
+  x.age.textContent = (t.partial ? 'seen ' : '') + age(ageMs);
+  x.age.className = 'chip age' + (ageMs < 60_000 ? ' fresh' : '');
+  x.holders.textContent = `${t.holders} holders`;
+  const fl = [];
+  if (t.risk.level !== 'LOW') fl.push(el('span', { class: 'rk ' + t.risk.level.toLowerCase(), title: `Risk score ${t.risk.score}/100` }, t.risk.level.toLowerCase() + ' risk'));
+  x.flags.replaceChildren(...fl);
+  const mcText = fmtMc(t.mcap);
+  if (x.mc.textContent !== mcText) {
+    if (x.px && t.price !== x.px) { x.mc.classList.remove('flashu', 'flashd'); void x.mc.offsetWidth; x.mc.classList.add(t.price > x.px ? 'flashu' : 'flashd'); }
+    x.mc.textContent = mcText;
+  }
+  x.px = t.price;
+  x.vol.textContent = t.v5.toFixed(1) + ' SOL';
+  x.tx.textContent = String(t.n5);
+  if (t.chg5 == null) x.chg.textContent = ''; else { x.chg.textContent = sgn(t.chg5, 1) + '%'; x.chg.className = 'tcchg ' + (t.chg5 >= 0 ? 'up' : 'dn'); }
+  const top = t.partial ? tone('n', 'Top10 ?', 'Not enough data: first seen mid-life') : tone(t.top10 > 0.35 ? 'b' : t.top10 > 0.25 ? 'w' : 'g', 'Top10 ' + pct(t.top10, 0), 'Share held by the 10 biggest wallets');
+  const dev = t.dev === 'sold_all' ? tone('b', 'Dev sold', 'Creator sold everything') : t.dev === 'holding' ? tone(t.devPct > 0.1 ? 'b' : t.devPct > 0.04 ? 'w' : 'g', 'Dev ' + pct(t.devPct, 0), 'Creator still holds this much') : t.dev === 'none' ? tone('g', 'Dev 0%', 'Creator holds none') : tone('n', 'Dev ?', 'Unknown');
+  const snp = tone(t.snipers >= 5 ? 'b' : t.snipers >= 2 ? 'w' : 'g', `${t.snipers} ${t.snipers === 1 ? 'sniper' : 'snipers'}`, 'Wallets that bought in the first seconds');
+  const bun = t.bundled ? tone('b', 'Bundled', 'Several wallets bought in the creation slot') : tone('g', 'No bundle', 'No bundled buys detected');
+  const bp = t.buyPct5 == null ? tone('n', 'Buys —', 'No volume in the last 5 minutes') : tone(t.buyPct5 >= 0.55 ? 'g' : t.buyPct5 < 0.4 ? 'b' : 'w', 'Buys ' + pct(t.buyPct5, 0), 'Share of 5m volume that is buying');
+  x.stats.replaceChildren(top, dev, snp, bun, bp);
+  r.classList.toggle('hot', t.prog >= 0.85 || t.v5 > 60);
+  r.classList.toggle('sel', t.mint === S.sel);
+  if (t.symbol && x.letter !== t.symbol) { x.letter = t.symbol; x.av.firstChild.textContent = t.symbol[0].toUpperCase(); }
 }
-function updateFilterBar() {
-  for (const r of Object.values(filterRefs.inputs)) if (r.unit === 'mc') r.u.textContent = useUsd() ? '$' : 'SOL';
-  const n = filterCount();
-  filterRefs.clear.textContent = n ? `Clear ${n} filter${n > 1 ? 's' : ''}` : 'Clear filters';
-  filterRefs.clear.disabled = !n;
-}
+
+/* ---- lanes */
 const laneRefs = {};
 function buildLanes() {
   const box = $('#lanes');
   box.replaceChildren(...LANES.map((L) => {
+    const c = cfgOf(L.id);
     const n = el('span', { class: 'n' }, '0');
+    const search = el('input', { type: 'search', class: 'lsearch', placeholder: 'Search', autocomplete: 'off', spellcheck: 'false', 'aria-label': `Search ${L.title}` });
+    search.value = c.q || '';
+    search.addEventListener('input', () => { c.q = search.value; saveCfg(); renderBoard(true); });
+    const amt = el('input', { type: 'text', inputmode: 'decimal', class: 'lamt-in', 'aria-label': 'Quick-buy amount in SOL' });
+    amt.value = c.amt;
+    amt.addEventListener('input', () => { c.amt = amt.value; saveCfg(); });
+    const badge = el('b', { class: 'badge', hidden: true }, '0');
+    const fbtn = el('button', { type: 'button', class: 'lfilter', title: 'Filters for this lane', 'aria-label': `Filters for ${L.title}`, 'aria-expanded': 'false' }, el('svg', {}), badge);
+    fbtn.firstChild.outerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M3 5h14M6 10h8M9 15h2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
+    const head = el('header', { class: 'lh' }, el('h2', {}, el('i', { class: 'ldot' }), L.title, n), search, el('label', { class: 'lamt', title: 'Quick-buy amount (SOL) for the ⚡ button on each card' }, '⚡', amt), fbtn);
     const list = el('div', { class: 'lanelist scroll' });
-    const sec = el('section', { class: 'lane panel', style: `--accent:${L.accent}` }, el('header', {}, el('h2', {}, L.title, n), el('p', {}, L.note)), list);
-    laneRefs[L.id] = { n, list, rows: new Map() };
+    const pop = buildLanePop(L, c, () => { saveCfg(); updateLaneBadge(L.id); renderBoard(true); });
+    const sec = el('section', { class: 'lane', style: `--tone:${L.tone}` }, head, pop.root, list);
+    fbtn.addEventListener('click', (e) => { e.stopPropagation(); const open = pop.root.hidden; closePops(); pop.root.hidden = !open; fbtn.setAttribute('aria-expanded', String(open)); });
+    laneRefs[L.id] = { n, list, rows: new Map(), badge, fbtn, pop, search, amt };
+    updateLaneBadge(L.id);
     return sec;
   }));
 }
+function closePops() {
+  for (const r of Object.values(laneRefs)) { r.pop.root.hidden = true; r.fbtn.setAttribute('aria-expanded', 'false'); }
+}
+function updateLaneBadge(id) {
+  const r = laneRefs[id];
+  const n = filterCount(cfgOf(id).f);
+  r.badge.hidden = !n;
+  r.badge.textContent = String(n);
+  r.fbtn.classList.toggle('on', n > 0);
+  r.pop.sync();
+}
+function buildLanePop(L, c, changed) {
+  const inputs = {}, flags = {};
+  const fields = FILTERS.map(({ k, label, unit }) => {
+    const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', spellcheck: 'false', placeholder: 'any', 'aria-label': `${label} (${L.title})` });
+    input.value = c.f[k] ?? '';
+    input.addEventListener('input', () => { if (input.value.trim()) c.f[k] = input.value; else delete c.f[k]; changed(); });
+    const u = el('i', {}, unit && unit !== 'mc' ? unit : '');
+    inputs[k] = { input, u, unit };
+    return el('label', { class: 'ff' }, el('span', {}, label), el('div', { class: 'fi' }, input, u));
+  });
+  const flagEls = FLAGS.map(([k, label]) => {
+    const cb = el('input', { type: 'checkbox' });
+    cb.checked = Boolean(c.f[k]);
+    cb.addEventListener('change', () => { if (cb.checked) c.f[k] = true; else delete c.f[k]; changed(); });
+    flags[k] = cb;
+    return el('label', { class: 'toggle' }, cb, el('span', {}, label));
+  });
+  const apply = (f) => { c.f = { ...f }; changed(); };
+  const presets = el('div', { class: 'fpresets' }, L.presets.map((id) => el('button', { type: 'button', class: 'fp', title: Object.entries(PRESETS[id].f).map(([k, v]) => `${k}: ${v}`).join(', '), onclick: () => apply(PRESETS[id].f) }, PRESETS[id].label)));
+  const clear = el('button', { type: 'button', class: 'fclear', onclick: () => apply({}) }, 'Clear');
+  const root = el('div', { class: 'lpop', hidden: true, role: 'dialog', 'aria-label': `${L.title} filters` },
+    el('div', { class: 'fgrid' }, fields), el('div', { class: 'fflags' }, flagEls), el('div', { class: 'fbot' }, presets, clear));
+  root.addEventListener('click', (e) => e.stopPropagation());
+  return {
+    root,
+    sync() {
+      for (const [k, r] of Object.entries(inputs)) { if (document.activeElement !== r.input) r.input.value = c.f[k] ?? ''; if (r.unit === 'mc') r.u.textContent = useUsd() ? '$' : 'SOL'; }
+      for (const [k, cb] of Object.entries(flags)) cb.checked = Boolean(c.f[k]);
+      clear.disabled = !filterCount(c.f);
+    },
+  };
+}
+function updateLaneUnits() { for (const L of LANES) if (laneRefs[L.id]) laneRefs[L.id].pop.sync(); }
 function renderLanes(all, now, force) {
-  const q = S.search.trim().toLowerCase();
   for (const L of LANES) {
+    const c = cfgOf(L.id);
+    const q = (c.q || '').trim().toLowerCase();
     let arr = all.filter((t) => matchTab(t, L.id, now));
     if (L.id === 'new') arr = arr.filter((t) => t.prog < 0.7); // a token near graduation lives in Final stretch only
     if (q) arr = arr.filter((t) => matches(t, q));
-    if (S.hideHigh) arr = arr.filter((t) => t.risk.level !== 'HIGH');
-    if (filterCount()) arr = arr.filter((t) => passesFilters(t, now));
+    if (filterCount(c.f)) arr = arr.filter((t) => passesFilters(t, now, c.f));
     arr.sort(SORT[L.id]);
     const ref = laneRefs[L.id];
     ref.n.textContent = arr.length > 40 ? '40+' : String(arr.length);
-    syncList(ref.list, ref.rows, arr.slice(0, 40), force, q ? 'No token matches that search.' : filterCount() ? 'No token matches your filters. Loosen them or clear them.' : L.empty);
+    syncList(ref.list, ref.rows, arr.slice(0, 40), force, q ? 'No token matches that search.' : filterCount(c.f) ? 'No token matches this lane\'s filters. Loosen or clear them.' : L.empty,
+      (t) => { const r = makeCard(t); r._lane = L.id; return r; }, updateCard);
   }
 }
 function setView(v, mint) {
@@ -494,7 +586,7 @@ function unitChanged() {
   if (S.detail) chart.setStyle(chartOpts());
   const t = S.tokens.get(S.sel);
   if (t) updateHead(t);
-  updateFilterBar();
+  updateLaneUnits();
   renderBoard(true);
   renderEquity();
   if (S.dock === 'trades') redrawTrades();
@@ -931,7 +1023,7 @@ function onUpd(d) {
     S.tokens.set(t.mint, t);
     const r = S.rows.get(t.mint);
     if (r) updateRow(r, t);
-    for (const ref of Object.values(laneRefs)) { const lr = ref.rows.get(t.mint); if (lr) updateRow(lr, t); }
+    for (const ref of Object.values(laneRefs)) { const lr = ref.rows.get(t.mint); if (lr) updateCard(lr, t); }
     if (t.mint === S.sel) { updateHead(t); refreshTradeUI(); }
   }
   for (const m of d.evicted) if (m !== S.sel) S.tokens.delete(m);
@@ -980,7 +1072,6 @@ const loadLW = () => new Promise((resolve) => {
 try { chart = (await loadLW()) ? new LWChart($('#chart')) : new Chart($('#chart')); } catch (err) { console.warn('Lightweight Charts failed, using the built-in chart.', err); chart = new Chart($('#chart')); }
 buildBoardTabs();
 buildLanes();
-buildFilters();
 buildQuick();
 $('#qtBtn').addEventListener('click', () => setQuick(Q.root.hidden));
 document.querySelectorAll('#views button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -990,19 +1081,14 @@ buildTrade();
 buildRisk();
 buildPositions();
 renderDock();
-// The dashboard and the trade board share one search box state and one risk filter.
 $('#hideHigh').checked = S.hideHigh;
-$('#dhide').checked = S.hideHigh;
-const onHide = (e) => { S.hideHigh = e.target.checked; $('#hideHigh').checked = $('#dhide').checked = S.hideHigh; store.set('hideHigh', S.hideHigh); renderBoard(true); };
-const onSearch = (e) => { S.search = e.target.value; $('#search').value = $('#dsearch').value = S.search; renderBoard(true); };
-$('#hideHigh').addEventListener('change', onHide);
-$('#dhide').addEventListener('change', onHide);
-$('#search').addEventListener('input', onSearch);
-$('#dsearch').addEventListener('input', onSearch);
+$('#hideHigh').addEventListener('change', (e) => { S.hideHigh = e.target.checked; store.set('hideHigh', S.hideHigh); renderBoard(true); });
+$('#search').addEventListener('input', (e) => { S.search = e.target.value; renderBoard(true); });
+document.addEventListener('click', closePops);
 window.addEventListener('keydown', (e) => {
-  const box = S.view === 'dash' ? $('#dsearch') : $('#search');
+  const box = S.view === 'dash' ? laneRefs.new.search : $('#search');
   if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); box.focus(); }
-  else if (e.key === 'Escape') { if (document.activeElement === box) box.blur(); else if (Q.root && !Q.root.hidden && !Q.edit) setQuick(false); }
+  else if (e.key === 'Escape') { closePops(); if (document.activeElement === box) box.blur(); else if (Q.root && !Q.root.hidden && !Q.edit) setQuick(false); }
 });
 setInterval(() => { if (S.tokens.size) renderBoard(false); }, 1000);
 setInterval(pollTop, 5000);
