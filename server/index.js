@@ -276,8 +276,11 @@ function serveStatic(res, pathname) {
   } catch {
     return fail(res, 400, 'Bad path');
   }
-  const file = path.normalize(path.join(WEB, rel));
-  if (!file.startsWith(WEB + path.sep)) return fail(res, 403, 'Forbidden');
+  // TradingView's Lightweight Charts comes from the npm package. Only this one file is exposed.
+  const file = rel === '/vendor/lightweight-charts.js'
+    ? path.join(ROOT, 'node_modules', 'lightweight-charts', 'dist', 'lightweight-charts.standalone.production.js')
+    : path.normalize(path.join(WEB, rel));
+  if (rel !== '/vendor/lightweight-charts.js' && !file.startsWith(WEB + path.sep)) return fail(res, 403, 'Forbidden');
   fs.readFile(file, (err, buf) => {
     if (err) return fail(res, 404, 'Not found');
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store', ...SEC });

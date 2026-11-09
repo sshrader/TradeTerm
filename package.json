@@ -2,10 +2,13 @@
   "name": "pulse-terminal",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Solana pump.fun trading terminal. Paper trading first, zero dependencies.",
+  "description": "Personal Solana pump.fun trading terminal. Paper trading first. The server has no dependencies; the chart uses TradingView Lightweight Charts.",
   "type": "module",
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "lightweight-charts": "4.2.0"
   },
   "scripts": {
     "start": "node server/index.js",

@@ -16,6 +16,10 @@
     <canvas id="hb" width="168" height="36" aria-hidden="true"></canvas>
     <span class="wm">pulse</span>
   </div>
+  <nav class="views seg" id="views" aria-label="View">
+    <button type="button" data-view="dash" class="on">Dashboard</button>
+    <button type="button" data-view="trade">Trade</button>
+  </nav>
   <div id="modepill" class="pill">connecting</div>
   <div class="stats" id="stats"></div>
   <div class="spacer"></div>
@@ -24,7 +28,16 @@
 </header>
 <div id="banner" class="banner" hidden></div>
 
-<main id="layout">
+<section id="dash" aria-label="Token swimlanes">
+  <div class="dtools">
+    <input id="dsearch" type="search" placeholder="Search symbol, name or mint  ( / )" autocomplete="off" spellcheck="false">
+    <label class="toggle"><input type="checkbox" id="dhide"><span>Hide high risk</span></label>
+    <span class="dhint">Click a token to open its chart and trade it.</span>
+  </div>
+  <div class="lanes" id="lanes"></div>
+</section>
+
+<main id="layout" hidden>
   <section id="board" class="panel">
     <div class="tabs" id="boardTabs" role="tablist"></div>
     <div class="tools">

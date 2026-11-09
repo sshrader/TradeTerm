@@ -1,4 +1,5 @@
 import { Chart } from './chart.js';
+import { LWChart, lwAvailable } from './lwchart.js';
 
 /* ------------------------------------------------------------------ helpers */
 const $ = (s, r = document) => r.querySelector(s);
@@ -73,7 +74,7 @@ function avatar(mint, symbol, imgCid) {
 const STEP = { '1s': 1000, '5s': 5000, '15s': 15000, '1m': 60000 };
 const S = {
   cid: null, status: null, solUsd: null, tokens: new Map(), rows: new Map(),
-  tab: store.get('tab', 'new'), search: '', hideHigh: store.get('hideHigh', false),
+  tab: store.get('tab', 'new'), view: 'dash', search: '', hideHigh: store.get('hideHigh', false),
   interval: store.get('interval', '5s'), unit: store.get('unit', 'usd'),
   sel: null, detail: null, meta: null, lastSeq: 0, trades: [],
   dock: store.get('dock', 'trades'), side: 'buy', buyAmt: store.get('buyAmt', 0.25), sellPct: 100,
@@ -220,8 +221,8 @@ function makeRow(t) {
   const av = avatar(t.mint, t.symbol);
   r.append(av, el('div', { class: 'rmain' }, el('div', { class: 'rtop' }, sym, nm, ago), el('div', { class: 'rbot' }, vol, hold, rk, tags)), el('div', { class: 'rright' }, mc, chg), prog, qb);
   r._r = { sym, nm, ago, vol, hold, tags, mc, chg, rk, prog: prog.firstChild, av, px: 0, mint: t.mint, letter: t.symbol };
-  r.addEventListener('click', () => select(t.mint));
-  r.addEventListener('keydown', (e) => { if (e.key === 'Enter') select(t.mint); });
+  r.addEventListener('click', () => openToken(t.mint));
+  r.addEventListener('keydown', (e) => { if (e.key === 'Enter') openToken(t.mint); });
   setTimeout(() => r.classList.remove('fresh'), 1500);
   return r;
 }
@@ -253,37 +254,86 @@ function updateRow(r, t) {
   r.classList.toggle('sel', t.mint === S.sel);
   if (t.symbol && x.letter !== t.symbol) { x.letter = t.symbol; x.av.firstChild.textContent = t.symbol[0].toUpperCase(); }
 }
-let lastOrder = [];
+const matches = (t, q) => (t.symbol || '').toLowerCase().includes(q) || (t.name || '').toLowerCase().includes(q) || t.mint.toLowerCase().includes(q);
+
+/* Keeps a list element in step with `arr`, reusing row elements. Each list owns its own row map. */
+function syncList(list, rows, arr, force, emptyText) {
+  const order = arr.map((t) => t.mint);
+  const prev = list._order || [];
+  const same = !force && order.length === prev.length && order.every((m, i) => m === prev[i]);
+  if (!same) {
+    const keep = new Set(order);
+    for (const [m, r] of rows) if (!keep.has(m)) { r.remove(); rows.delete(m); }
+    list.querySelector('.empty')?.remove();
+    arr.forEach((t, i) => {
+      let r = rows.get(t.mint);
+      if (!r) { r = makeRow(t); rows.set(t.mint, r); }
+      if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
+    });
+    if (!arr.length) list.append(el('div', { class: 'empty' }, emptyText));
+    list._order = order;
+  }
+  for (const t of arr) updateRow(rows.get(t.mint), t);
+}
+
 function renderBoard(force) {
   const now = Date.now();
   const q = S.search.trim().toLowerCase();
   const all = [...S.tokens.values()];
+  if (S.view === 'dash') { renderLanes(all, now, force); return; }
   const counts = {};
   for (const [id] of BOARD_TABS) counts[id] = all.filter((t) => matchTab(t, id, now)).length;
   document.querySelectorAll('#boardTabs .tab').forEach((b) => {
     b.classList.toggle('on', b.dataset.id === S.tab);
     b.querySelector('.n').textContent = counts[b.dataset.id] || '';
   });
-  let arr = q ? all.filter((t) => (t.symbol || '').toLowerCase().includes(q) || (t.name || '').toLowerCase().includes(q) || t.mint.toLowerCase().includes(q)) : all.filter((t) => matchTab(t, S.tab, now));
+  let arr = q ? all.filter((t) => matches(t, q)) : all.filter((t) => matchTab(t, S.tab, now));
   if (S.hideHigh) arr = arr.filter((t) => t.risk.level !== 'HIGH');
   arr.sort(q ? SORT.hot : SORT[S.tab]);
-  arr = arr.slice(0, 60);
-  const list = $('#list');
-  const order = arr.map((t) => t.mint);
-  const same = !force && order.length === lastOrder.length && order.every((m, i) => m === lastOrder[i]);
-  if (!same) {
-    const keep = new Set(order);
-    for (const [m, r] of S.rows) if (!keep.has(m)) { r.remove(); S.rows.delete(m); }
-    list.querySelector('.empty')?.remove();
-    arr.forEach((t, i) => {
-      let r = S.rows.get(t.mint);
-      if (!r) { r = makeRow(t); S.rows.set(t.mint, r); }
-      if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
-    });
-    if (!arr.length) list.append(el('div', { class: 'empty' }, q ? 'No token matches that search.' : S.tab === 'grad' ? 'No token has graduated since launch yet.' : 'Nothing here yet. New launches appear as they happen.'));
-    lastOrder = order;
+  syncList($('#list'), S.rows, arr.slice(0, 60), force, q ? 'No token matches that search.' : S.tab === 'grad' ? 'No token has graduated since launch yet.' : 'Nothing here yet. New launches appear as they happen.');
+}
+
+/* ------------------------------------------------------------------ dashboard swimlanes */
+const LANES = [
+  { id: 'new', title: 'New', note: 'Launched in the last 20 minutes', accent: 'var(--plasma)', empty: 'Nothing new yet. Launches appear here as they happen.' },
+  { id: 'final', title: 'Final stretch', note: '70% or more of the way to graduating', accent: 'var(--amber)', empty: 'No token is close to graduating right now.' },
+  { id: 'grad', title: 'Graduated', note: 'Completed the bonding curve since launch', accent: 'var(--buy)', empty: 'No token has graduated since launch yet.' },
+];
+const laneRefs = {};
+function buildLanes() {
+  const box = $('#lanes');
+  box.replaceChildren(...LANES.map((L) => {
+    const n = el('span', { class: 'n' }, '0');
+    const list = el('div', { class: 'lanelist scroll' });
+    const sec = el('section', { class: 'lane panel', style: `--accent:${L.accent}` }, el('header', {}, el('h2', {}, L.title, n), el('p', {}, L.note)), list);
+    laneRefs[L.id] = { n, list, rows: new Map() };
+    return sec;
+  }));
+}
+function renderLanes(all, now, force) {
+  const q = S.search.trim().toLowerCase();
+  for (const L of LANES) {
+    let arr = all.filter((t) => matchTab(t, L.id, now));
+    if (L.id === 'new') arr = arr.filter((t) => t.prog < 0.7); // a token near graduation lives in Final stretch only
+    if (q) arr = arr.filter((t) => matches(t, q));
+    if (S.hideHigh) arr = arr.filter((t) => t.risk.level !== 'HIGH');
+    arr.sort(SORT[L.id]);
+    const ref = laneRefs[L.id];
+    ref.n.textContent = arr.length > 40 ? '40+' : String(arr.length);
+    syncList(ref.list, ref.rows, arr.slice(0, 40), force, q ? 'No token matches that search.' : L.empty);
   }
-  for (const t of arr) updateRow(S.rows.get(t.mint), t);
+}
+function setView(v, mint) {
+  S.view = v === 'trade' ? 'trade' : 'dash';
+  store.set('view', S.view);
+  $('#dash').hidden = S.view !== 'dash';
+  $('#layout').hidden = S.view !== 'trade';
+  document.querySelectorAll('#views button').forEach((b) => b.classList.toggle('on', b.dataset.view === S.view));
+  if (mint) select(mint);
+  renderBoard(true);
+}
+function openToken(mint) {
+  if (S.view !== 'trade') setView('trade', mint); else select(mint);
 }
 
 /* ------------------------------------------------------------------ token header */
@@ -662,6 +712,7 @@ function onInit(d) {
     const h = decodeURIComponent(location.hash.slice(1));
     const best = [...S.tokens.values()].filter((t) => !t.complete && t.price > 0).sort((a, b) => b.v5 - a.v5)[0];
     S.sel = S.tokens.has(h) ? h : best?.mint || null;
+    if (S.tokens.has(h) && S.view !== 'trade') setView('trade'); // a shared link opens straight on the chart
   }
   if (S.sel) select(S.sel); // also re-registers the selection after a reconnect
 }
@@ -671,6 +722,7 @@ function onUpd(d) {
     S.tokens.set(t.mint, t);
     const r = S.rows.get(t.mint);
     if (r) updateRow(r, t);
+    for (const ref of Object.values(laneRefs)) { const lr = ref.rows.get(t.mint); if (lr) updateRow(lr, t); }
     if (t.mint === S.sel) { updateHead(t); refreshTradeUI(); }
   }
   for (const m of d.evicted) if (m !== S.sel) S.tokens.delete(m);
@@ -707,20 +759,38 @@ function connect() {
 
 /* ------------------------------------------------------------------ boot */
 buildTop();
-chart = new Chart($('#chart'));
+// TradingView Lightweight Charts when the npm package is installed; otherwise the built-in canvas chart.
+const loadLW = () => new Promise((resolve) => {
+  if (lwAvailable()) return resolve(true);
+  const s = document.createElement('script');
+  s.src = '/vendor/lightweight-charts.js';
+  s.onload = () => resolve(lwAvailable());
+  s.onerror = () => resolve(false);
+  document.head.append(s);
+});
+try { chart = (await loadLW()) ? new LWChart($('#chart')) : new Chart($('#chart')); } catch (err) { console.warn('Lightweight Charts failed, using the built-in chart.', err); chart = new Chart($('#chart')); }
 buildBoardTabs();
+buildLanes();
+document.querySelectorAll('#views button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 buildChartBar();
 buildDockTabs();
 buildTrade();
 buildRisk();
 buildPositions();
 renderDock();
+// The dashboard and the trade board share one search box state and one risk filter.
 $('#hideHigh').checked = S.hideHigh;
-$('#hideHigh').addEventListener('change', (e) => { S.hideHigh = e.target.checked; store.set('hideHigh', S.hideHigh); renderBoard(true); });
-$('#search').addEventListener('input', (e) => { S.search = e.target.value; renderBoard(true); });
+$('#dhide').checked = S.hideHigh;
+const onHide = (e) => { S.hideHigh = e.target.checked; $('#hideHigh').checked = $('#dhide').checked = S.hideHigh; store.set('hideHigh', S.hideHigh); renderBoard(true); };
+const onSearch = (e) => { S.search = e.target.value; $('#search').value = $('#dsearch').value = S.search; renderBoard(true); };
+$('#hideHigh').addEventListener('change', onHide);
+$('#dhide').addEventListener('change', onHide);
+$('#search').addEventListener('input', onSearch);
+$('#dsearch').addEventListener('input', onSearch);
 window.addEventListener('keydown', (e) => {
-  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); $('#search').focus(); }
-  else if (e.key === 'Escape') { $('#search').blur(); }
+  const box = S.view === 'dash' ? $('#dsearch') : $('#search');
+  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); box.focus(); }
+  else if (e.key === 'Escape') { box.blur(); }
 });
 setInterval(() => { if (S.tokens.size) renderBoard(false); }, 1000);
 setInterval(pollTop, 5000);

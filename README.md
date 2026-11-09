@@ -1,10 +1,18 @@
 # Pulse terminal
 
-A personal Solana trading terminal for pump.fun tokens. One process on your own machine, no dependencies, no build step. Version 0.1 does **paper trading only**: real market data, simulated fills, no wallet, no funds at risk.
+A personal Solana trading terminal for pump.fun tokens. One process on your own machine, no build step. The only dependency is TradingView's open-source Lightweight Charts, used for the price chart. Version 0.1 does **paper trading only**: real market data, simulated fills, no wallet, no funds at risk.
 
 ## Run it
 
 You need Node.js 22 or newer (`node -v` to check; get it at nodejs.org).
+
+**Install once**
+
+```
+npm install
+```
+
+This fetches the chart library. If you skip it, the terminal still works and falls back to a simpler built-in chart.
 
 **Demo first (no key needed)**
 
@@ -47,8 +55,9 @@ Ten wrong passwords from one address in ten minutes locks that address out for a
 
 | Area | What it does |
 |---|---|
-| New / Hot / Final stretch / Graduated | Live token board with market cap, 5m volume, holders, curve progress, risk level and quick-buy buttons |
-| Chart | Candles and volume built locally from trades (1s, 5s, 15s, 1m), USD or SOL, zoom and pan, your entry line |
+| Dashboard | Opens first: three swimlanes (New, Final stretch, Graduated), each token in one lane. Click a token to open it in the Trade view |
+| Trade view | Board tabs (New / Hot / Final stretch / Graduated) with market cap, 5m volume, holders, curve progress, risk level and quick-buy buttons |
+| Chart | TradingView Lightweight Charts: candles and volume built locally from trades (1s, 5s, 15s, 1m), USD or SOL, crosshair, zoom and pan, your entry line |
 | Risk check | 0-100 score from dev behaviour, holder concentration, snipers, bundled launches and sell pressure. "Verify on-chain" adds mint and freeze authority plus real top-holder numbers |
 | Wallet tracker | Watch wallets and get real-time alerts. A leaderboard ranks the best realized PnL seen since launch, with a flag for bot-like wallets |
 | Paper account | Buys and sells on the real bonding curve with take-profit, stop-loss, a kill switch and hard risk limits |
@@ -115,7 +124,7 @@ A round trip typically costs 4-6% before the price moves at all. That is realist
 ```
 server/   index.js (HTTP + SSE), decoder.js, store.js, risk.js, paper.js, wallets.js,
           rpc.js, chain.js, meta.js, price.js, demo.js, config.js, util.js
-web/      index.html, app.css, app.js, chart.js
+web/      index.html, app.css, app.js, lwchart.js (TradingView chart), chart.js (fallback)
 test/     decoder and paper-engine tests (npm test)
 data/     created at runtime: paper account, watchlist, credit counter
 ```
