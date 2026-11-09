@@ -110,18 +110,32 @@ setInterval(() => {
   hbData.push(spike ? (Math.random() < 0.5 ? 1 : -0.65) * amp * (0.6 + Math.random() * 0.4) : (Math.random() - 0.5) * 0.06);
   hbData.shift();
 }, 70);
+let hbCol = { a: '124,92,255', b: '#29d3ff', c: '#7c5cff' };
+function readThemeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const acc = cs.getPropertyValue('--acc').trim().split(/\s+/).join(',');
+  hbCol = { a: acc || hbCol.a, b: cs.getPropertyValue('--plasma').trim() || hbCol.b, c: cs.getPropertyValue('--uv').trim() || hbCol.c };
+}
+const THEMES = [['graphite', 'Graphite', '#3e9bff'], ['ocean', 'Ocean', '#22b8e8'], ['ember', 'Ember', '#ff8a3d'], ['mono', 'Mono', '#d4d4d8'], ['violet', 'Violet', '#7c5cff']];
+function setTheme(id, save = true) {
+  if (!THEMES.some(([k]) => k === id)) id = 'graphite';
+  document.documentElement.setAttribute('data-theme', id);
+  if (save) store.set('theme', id);
+  document.querySelectorAll('#themes .theme').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+  readThemeColors();
+}
 function drawHb() {
   const d = window.devicePixelRatio || 1;
   if (hb.width !== 168 * d) { hb.width = 168 * d; hb.height = 36 * d; hbx.setTransform(d, 0, 0, d, 0, 0); }
   hbx.clearRect(0, 0, 168, 36);
   const g = hbx.createLinearGradient(0, 0, 168, 0);
-  g.addColorStop(0, 'rgba(124,92,255,0)');
-  g.addColorStop(0.45, '#7c5cff');
-  g.addColorStop(1, '#29d3ff');
+  g.addColorStop(0, `rgba(${hbCol.a},0)`);
+  g.addColorStop(0.45, hbCol.c);
+  g.addColorStop(1, hbCol.b);
   hbx.strokeStyle = g;
   hbx.lineWidth = 2;
   hbx.lineJoin = 'round';
-  hbx.shadowColor = '#7c5cff';
+  hbx.shadowColor = hbCol.c;
   hbx.shadowBlur = 8;
   hbx.beginPath();
   hbData.forEach((v, i) => { const x = (i / (hbData.length - 1)) * 168; const y = 18 - v * 15; i ? hbx.lineTo(x, y) : hbx.moveTo(x, y); });
@@ -350,6 +364,94 @@ function passesFilters(t, now, f) {
 }
 const filterCount = (f) => FILTERS.filter(({ k }) => num(f[k]) != null).length + FLAGS.filter(([k]) => f[k]).length;
 
+
+/* ---- token metadata for cards (socials and the real image). Fetched lazily as a card scrolls into view,
+   at most 3 at a time and cached, so the IPFS gateways are never flooded. Everything in it is attacker-controlled. */
+const metaCache = new Map();
+const metaWaiting = new Map();
+const metaQueue = [];
+let metaBusy = 0;
+function wantMeta(mint, cb) {
+  if (metaCache.has(mint)) { const v = metaCache.get(mint); if (v) cb(v); return; }
+  if (metaWaiting.has(mint)) { metaWaiting.get(mint).push(cb); return; }
+  metaWaiting.set(mint, [cb]);
+  metaQueue.push(mint);
+  pumpMeta();
+}
+function pumpMeta() {
+  while (metaBusy < 3 && metaQueue.length) {
+    const mint = metaQueue.shift();
+    metaBusy++;
+    getJson('/api/meta/' + mint)
+      .then((r) => (r?.ok ? r.meta : null))
+      .catch(() => null)
+      .then((meta) => {
+        if (metaCache.size > 800) metaCache.delete(metaCache.keys().next().value);
+        metaCache.set(mint, meta);
+        for (const cb of metaWaiting.get(mint) || []) if (meta) cb(meta);
+        metaWaiting.delete(mint);
+      })
+      .finally(() => { metaBusy--; pumpMeta(); });
+  }
+}
+const SOC = {
+  x: { label: 'X', path: 'M3 3h4.2l3.4 4.7L14.8 3H17l-5.4 6.2L17.4 17h-4.2l-3.7-5.1L5.1 17H3l5.8-6.6L3 3z' },
+  tg: { label: 'Telegram', path: 'M17.5 3.2 2.9 8.9c-1 .4-1 1 0 1.3l3.7 1.1 1.4 4.3c.2.5.1.7.6.7.4 0 .6-.2.8-.4l1.8-1.8 3.7 2.7c.7.4 1.2.2 1.4-.6l2.4-11.4c.3-1-.4-1.5-1.2-1.6zM7.5 11.2l7.1-4.5c.3-.2.6-.1.4.1l-5.9 5.3-.2 2.4-1.4-3.3z' },
+  web: { label: 'Website', path: 'M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 1.5c.9 1 1.6 2.4 1.9 4H8.1c.3-1.6 1-3 1.9-4zM4.3 8h2.3a14 14 0 0 0 0 4H4.3a6.5 6.5 0 0 1 0-4zm4 0h3.4a12 12 0 0 1 0 4H8.3a12 12 0 0 1 0-4zm5.1 0h2.3a6.5 6.5 0 0 1 0 4h-2.3a14 14 0 0 0 0-4zM8.1 12.5h3.8c-.3 1.6-1 3-1.9 4-.9-1-1.6-2.4-1.9-4z' },
+};
+/* Only https links are shown, and the icon is chosen from the real host, never from which field the link came in. */
+function socialOf(u) {
+  let url;
+  try { url = new URL(u); } catch { return null; }
+  if (url.protocol !== 'https:') return null;
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  if (host === 'x.com' || host === 'twitter.com') {
+    const h = url.pathname.split('/').filter(Boolean)[0] || '';
+    return { kind: 'x', url: url.href, handle: /^[A-Za-z0-9_]{1,15}$/.test(h) && h !== 'i' && h !== 'home' ? '@' + h : null };
+  }
+  if (host === 't.me' || host === 'telegram.me') return { kind: 'tg', url: url.href };
+  return { kind: 'web', url: url.href, host };
+}
+function socialIcon(sc) {
+  const d = SOC[sc.kind];
+  const a = el('a', { class: 'soc ' + sc.kind, href: sc.url, target: '_blank', rel: 'noopener noreferrer nofollow', title: `${d.label}: ${sc.handle || sc.host || sc.url}`.slice(0, 160), 'aria-label': d.label });
+  a.addEventListener('click', (e) => e.stopPropagation()); // opening a link must not also open the token
+  a.innerHTML = `<svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="${d.path}" fill="currentColor"/></svg>`;
+  return a;
+}
+function applyCardMeta(r, meta) {
+  const x = r._r;
+  if (meta.imageCid && !x.imgDone) {
+    x.imgDone = true;
+    const t = S.tokens.get(x.mint);
+    const av = avatar(x.mint, t?.symbol, meta.imageCid);
+    x.av.replaceWith(av);
+    x.av = av;
+  }
+  const seen = new Set();
+  const out = [];
+  for (const k of ['twitter', 'telegram', 'website']) {
+    const sc = meta[k] ? socialOf(meta[k]) : null;
+    if (!sc || seen.has(sc.kind)) continue;
+    seen.add(sc.kind);
+    out.push(sc);
+  }
+  const x1 = out.find((o) => o.kind === 'x');
+  x.soc.replaceChildren(...out.map(socialIcon), ...(x1?.handle ? [el('span', { class: 'handle' }, x1.handle)] : []));
+}
+const cardIO = typeof IntersectionObserver === 'function' ? new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    cardIO.unobserve(e.target);
+    const r = e.target;
+    wantMeta(r._r.mint, (meta) => applyCardMeta(r, meta));
+  }
+}, { rootMargin: '120px' }) : null;
+function watchCard(r) {
+  if (cardIO) cardIO.observe(r);
+  else wantMeta(r._r.mint, (meta) => applyCardMeta(r, meta));
+}
+
 /* ---- token card used in the lanes */
 const tone = (cls, text, title) => el('span', { class: 'chip ' + cls, title }, text);
 function makeCard(t) {
@@ -359,7 +461,7 @@ function makeCard(t) {
     av: avatar(t.mint, t.symbol),
     bar: el('i'), mintTxt: el('small'),
     sym: el('b', { class: 'tcsym' }), nm: el('span', { class: 'tcnm' }),
-    age: el('span', { class: 'chip age' }), holders: el('span', { class: 'tcm' }), flags: el('span', { class: 'tcflags' }),
+    age: el('span', { class: 'chip age' }), holders: el('span', { class: 'tcm' }), soc: el('span', { class: 'tcsoc' }), flags: el('span', { class: 'tcflags' }),
     mc: el('b', { class: 'tcmc' }), vol: el('span'), tx: el('span'), chg: el('span', { class: 'tcchg' }),
     stats: el('div', { class: 'tcstats' }),
     buy: el('button', { type: 'button', class: 'tcbuy' }, '⚡'),
@@ -367,10 +469,11 @@ function makeCard(t) {
   x.buy.addEventListener('click', (e) => { e.stopPropagation(); quickBuy(t.mint, x.amt()); });
   r.append(
     el('div', { class: 'tcav' }, x.av, el('div', { class: 'tcbar' }, x.bar), x.mintTxt),
-    el('div', { class: 'tcmain' }, el('div', { class: 'tcl1' }, x.sym, x.nm), el('div', { class: 'tcl2' }, x.age, x.holders), x.flags),
+    el('div', { class: 'tcmain' }, el('div', { class: 'tcl1' }, x.sym, x.nm), el('div', { class: 'tcl2' }, x.age, x.holders, x.soc), x.flags),
     el('div', { class: 'tcright' }, x.mc, el('div', { class: 'tcsub' }, el('span', {}, 'Vol ', x.vol), el('span', {}, 'Tx ', x.tx)), x.chg),
     x.stats, x.buy);
   r._r = x;
+  watchCard(r);
   r.addEventListener('click', () => openToken(t.mint));
   r.addEventListener('keydown', (e) => { if (e.key === 'Enter') openToken(t.mint); });
   setTimeout(() => r.classList.remove('fresh'), 1500);
@@ -1145,6 +1248,8 @@ function connect() {
 
 /* ------------------------------------------------------------------ boot */
 buildTop();
+$('#themes').replaceChildren(...THEMES.map(([id, label, col]) => el('button', { type: 'button', class: 'theme', 'data-id': id, title: label + ' theme', 'aria-label': label + ' theme', style: `--sw:${col}`, onclick: () => setTheme(id) })));
+setTheme(store.get('theme', 'graphite'), false);
 // TradingView Lightweight Charts when the npm package is installed; otherwise the built-in canvas chart.
 const loadLW = () => new Promise((resolve) => {
   if (lwAvailable()) return resolve(true);

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
 
 // Token metadata URIs are attacker-controlled. To avoid leaking your IP to random servers (or
@@ -53,12 +54,15 @@ export async function getMeta(token, { demo = false } = {}) {
   if (cache.has(key)) return cache.get(key);
   if (!token.uri) return { description: '', imageCid: null, twitter: null, telegram: null, website: null };
   if (demo || token.uri.startsWith('demo://')) {
+    // Placeholder links (clearly fake handles) so the layout can be seen in demo mode. Chosen per token, not random per request.
+    const h = parseInt(crypto.createHash('sha1').update(key).digest('hex').slice(0, 8), 16);
+    const slug = 'demo_' + String(token.symbol || 'token').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 9);
     const m = {
       description: `Simulated token ${token.symbol || ''}. This is demo data, not a real launch.`,
       imageCid: null,
-      twitter: null,
-      telegram: null,
-      website: null,
+      twitter: h % 5 < 3 ? `https://x.com/${slug}` : null,
+      telegram: h % 5 === 1 || h % 5 === 4 ? `https://t.me/${slug}` : null,
+      website: h % 4 === 0 ? `https://example.com/${slug}` : null,
     };
     cache.set(key, m);
     return m;

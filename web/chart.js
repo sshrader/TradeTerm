@@ -233,7 +233,7 @@ export class Chart {
       ctx.beginPath(); ctx.moveTo(mo.x + 0.5, padT); ctx.lineTo(mo.x + 0.5, h - padB); ctx.moveTo(padL, mo.y + 0.5); ctx.lineTo(w - padR, mo.y + 0.5); ctx.stroke();
       ctx.setLineDash([]);
       const val = lo + (1 - (mo.y - padT) / priceH) * (hi - lo);
-      ctx.fillStyle = '#2a2b55';
+      ctx.fillStyle = '#262a33';
       ctx.fillRect(w - padR, mo.y - 9, padR - 4, 18);
       ctx.fillStyle = '#e9eaf6';
       ctx.fillText(this.fmt(val), w - padR + 4, mo.y);

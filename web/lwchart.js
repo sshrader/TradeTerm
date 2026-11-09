@@ -39,7 +39,7 @@ export class LWChart {
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       rightPriceScale: { borderColor: border, scaleMargins: { top: 0.08, bottom: 0.24 } },
       timeScale: { borderColor: border, timeVisible: true, secondsVisible: true, rightOffset: 4, barSpacing: 9 },
-      crosshair: { mode: L.CrosshairMode.Normal, vertLine: { color: 'rgba(200,195,255,0.35)', labelBackgroundColor: '#2a2b55' }, horzLine: { color: 'rgba(200,195,255,0.35)', labelBackgroundColor: '#2a2b55' } },
+      crosshair: { mode: L.CrosshairMode.Normal, vertLine: { color: 'rgba(200,195,255,0.35)', labelBackgroundColor: '#262a33' }, horzLine: { color: 'rgba(200,195,255,0.35)', labelBackgroundColor: '#262a33' } },
       localization: { priceFormatter: (v) => this.fmt(v) },
     });
     this.candles = this.chart.addCandlestickSeries({
