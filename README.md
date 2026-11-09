@@ -57,8 +57,9 @@ Ten wrong passwords from one address in ten minutes locks that address out for a
 
 | Area | What it does |
 |---|---|
-| Dashboard | Opens first: three swimlanes (New, Final stretch, Graduated), each token in one lane. Every lane has its own search, quick-buy amount (the ⚡ button on a card) and filters (market cap, volume, holders, top-10 share, age, curve progress, 5m change, risk, bundled, dev sold) with presets, all remembered per lane. Cards show curve progress, top-10 share, dev holding, snipers, bundling and buy pressure at a glance. Click a token to open it in the Trade view |
+| Dashboard | Opens first: three swimlanes (New, Final stretch, Graduated), each token in one lane. Every lane has its own search, quick-buy amount (the ⚡ button on a card) and filters (market cap, volume, holders, top-10 share, age, curve progress, 5m change, risk, bundled, dev sold) with presets, all remembered per lane. Cards show curve progress, top-10 share, dev holding, snipers, bundling and buy pressure at a glance. Drag the handles between lanes to resize them (double-click to reset). Click a token to open it in the Trade view |
 | Quick trade | Floating, draggable buy/sell window (top bar button, Esc to close). One click on an amount buys, one click on a percent sells, for whichever token is selected. Presets are editable (pencil) and TP/SL are set in the window. Paper trades only |
+| PnL | Total paper PnL sits in the top bar (SOL, percent and USD; hover for realized, open and today). Your position's PnL shows on the token header, as a "Held" chip on dashboard cards, and in the paper account summary |
 | Trade view | Board tabs (New / Hot / Final stretch / Graduated) with market cap, 5m volume, holders, curve progress, risk level and quick-buy buttons |
 | Chart | TradingView Lightweight Charts: candles and volume built locally from trades (1s, 5s, 15s, 1m), USD or SOL, crosshair, zoom and pan, your entry line |
 | Risk check | 0-100 score from dev behaviour, holder concentration, snipers, bundled launches and sell pressure. "Verify on-chain" adds mint and freeze authority plus real top-holder numbers |

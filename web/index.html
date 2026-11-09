@@ -24,6 +24,7 @@
   <div class="stats" id="stats"></div>
   <div class="spacer"></div>
   <button id="qtBtn" class="qtbtn" type="button" title="Floating buy and sell window">Quick trade</button>
+  <div id="pnl" class="pnl" title="Paper profit and loss"></div>
   <div id="equity" class="equity"></div>
   <button id="kill" class="kill" type="button" title="Blocks new buys. Exits and TP/SL stay active."></button>
 </header>
@@ -35,6 +36,7 @@
 
 <main id="layout" hidden>
   <section id="board" class="panel">
+    <div class="bresize" id="bresize" role="separator" aria-orientation="vertical" title="Drag to resize. Double-click to reset."></div>
     <div class="tabs" id="boardTabs" role="tablist"></div>
     <div class="tools">
       <input id="search" type="search" placeholder="Search symbol, name or mint  ( / )" autocomplete="off" spellcheck="false">

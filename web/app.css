@@ -155,7 +155,7 @@ button { cursor: pointer; }
 .tc:hover .tcchg, .tc.sel .tcchg { visibility: hidden; }
 
 /* ---------- layout ---------- */
-#layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 410px) minmax(0, 1fr) minmax(320px, 360px); gap: 10px; padding: 10px; }
+#layout { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--bw, 410px) minmax(0, 1fr) minmax(320px, 360px); gap: 10px; padding: 10px; }
 #center { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
 #side { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(160, 150, 255, 0.25) transparent; }
 .panel, .card { background: var(--glass); border: 1px solid var(--line); border-radius: var(--r); box-shadow: none; }
@@ -398,3 +398,42 @@ tr.click:hover td { background: rgba(124, 92, 255, 0.07); }
 
 /* ---------- view-only visitors (public demo): no trading UI at all ---------- */
 .viewonly #tradeCard, .viewonly #posCard, .viewonly #equity, .viewonly #kill, .viewonly #qtBtn, .viewonly .qt, .viewonly .qbtns, .viewonly .tcbuy, .viewonly .lamt { display: none !important; }
+
+/* ---------- resizable lanes, collapsible token list ---------- */
+.lhandle { cursor: col-resize; display: grid; place-items: center; touch-action: none; }
+.lhandle i { width: 3px; height: 44px; border-radius: 3px; background: var(--line2); transition: background 0.12s, height 0.12s; }
+.lhandle:hover i, .lhandle.drag i { background: var(--uv); height: 72px; }
+#board { position: relative; }
+.bresize { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 4; touch-action: none; }
+.bresize:hover, .bresize.drag { background: linear-gradient(90deg, transparent, rgba(124, 92, 255, 0.5)); }
+#layout.nolist { grid-template-columns: minmax(0, 1fr) minmax(320px, 360px); }
+#layout.nolist #board { display: none; }
+.listbtn { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line2); border-radius: 9px; padding: 3px 10px; font-size: 12px; font-weight: 600; color: var(--dim); white-space: nowrap; }
+.listbtn:hover, .listbtn.on { color: #fff; }
+.listbtn.on { background: rgba(124, 92, 255, 0.25); border-color: rgba(124, 92, 255, 0.5); }
+
+/* ---------- PnL ---------- */
+.pnl { text-align: right; line-height: 1.1; padding: 4px 14px; border-radius: 12px; border: 1px solid var(--line2); background: rgba(255, 255, 255, 0.03); cursor: help; }
+.pnl b { display: block; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.pnl span { font-size: 11px; color: var(--faint); }
+.pnl.up { border-color: rgba(43, 240, 181, 0.4); background: rgba(43, 240, 181, 0.08); }
+.pnl.up b { color: var(--buy); }
+.pnl.dn { border-color: rgba(255, 77, 126, 0.45); background: rgba(255, 77, 126, 0.09); }
+.pnl.dn b { color: var(--sell); }
+.pnl:empty { display: none; }
+.tpos { margin-top: 6px; padding: 6px 12px; border-radius: 10px; border: 1px solid; text-align: right; display: flex; flex-direction: column; line-height: 1.2; }
+.tpos[hidden] { display: none; }
+.tpos span { font-size: 11px; color: var(--dim); }
+.tpos b { font-size: 18px; font-weight: 800; }
+.tpos.up { border-color: rgba(43, 240, 181, 0.4); background: rgba(43, 240, 181, 0.08); }
+.tpos.up b { color: var(--buy); }
+.tpos.dn { border-color: rgba(255, 77, 126, 0.45); background: rgba(255, 77, 126, 0.09); }
+.tpos.dn b { color: var(--sell); }
+.chip.held { font-weight: 700; }
+.sumrow { grid-template-columns: repeat(2, 1fr) !important; }
+.viewonly #pnl { display: none !important; }
+@media (max-width: 1220px) { .bresize, #listBtn { display: none; } #layout.nolist #board { display: flex; } #layout.nolist { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); } }
+@media (max-width: 1100px) {
+  .lanes { grid-template-columns: 1fr !important; }
+  .lhandle { display: none; }
+}

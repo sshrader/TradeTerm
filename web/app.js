@@ -182,6 +182,12 @@ function renderEquity() {
   if (!p) return;
   const e = $('#equity');
   e.replaceChildren(el('b', {}, fmtSol(p.equity, 3) + ' SOL'), el('span', {}, 'paper equity' + (S.solUsd ? ' · $' + compact(p.equity * S.solUsd) : '')));
+  const total = p.equity - p.startSol;
+  const unreal = p.positions.reduce((a, x) => a + (x.pnlSol || 0), 0);
+  const pn = $('#pnl');
+  pn.className = 'pnl ' + (total > 0.0005 ? 'up' : total < -0.0005 ? 'dn' : '');
+  pn.title = `Total PnL since the account started (${p.startSol} SOL)\nRealized ${sgn(p.realized, 3)} SOL\nOpen positions ${sgn(unreal, 3)} SOL\nToday ${sgn(p.dayPnl ?? 0, 3)} SOL`;
+  pn.replaceChildren(el('b', {}, sgn(total, 3) + ' SOL'), el('span', {}, `${sgn((total / p.startSol) * 100, 1)}%${S.solUsd ? ' · ' + (total < 0 ? '-' : '+') + '$' + compact(Math.abs(total) * S.solUsd) : ''} total PnL`));
   const k = $('#kill');
   k.className = 'kill ' + (p.enabled ? 'on' : 'off');
   k.textContent = p.enabled ? 'Buys enabled' : 'Kill switch on';
@@ -385,6 +391,8 @@ function updateCard(r, t) {
   x.age.className = 'chip age' + (ageMs < 60_000 ? ' fresh' : '');
   x.holders.textContent = `${t.holders} holders`;
   const fl = [];
+  const held = S.paper?.positions.find((x) => x.mint === t.mint);
+  if (held && held.pnlPct != null) fl.push(el('span', { class: 'chip held ' + (held.pnlPct >= 0 ? 'g' : 'b'), title: `You hold this: ${sgn(held.pnlSol, 3)} SOL` }, `Held ${sgn(held.pnlPct, 1)}%`));
   if (t.risk.level !== 'LOW') fl.push(el('span', { class: 'rk ' + t.risk.level.toLowerCase(), title: `Risk score ${t.risk.score}/100` }, t.risk.level.toLowerCase() + ' risk'));
   x.flags.replaceChildren(...fl);
   const mcText = fmtMc(t.mcap);
@@ -432,6 +440,67 @@ function buildLanes() {
     updateLaneBadge(L.id);
     return sec;
   }));
+  // Drag handles between the lanes. Widths are kept as relative weights and remembered.
+  const secs = [...box.children];
+  const els = [];
+  secs.forEach((sec, i) => {
+    els.push(sec);
+    if (i < secs.length - 1) els.push(laneHandle(i, box));
+  });
+  box.replaceChildren(...els);
+  applyLaneW();
+}
+const laneW = (() => { const v = store.get('lanew', [1, 1, 1]); return Array.isArray(v) && v.length === 3 && v.every((n) => n > 0) ? v : [1, 1, 1]; })();
+function applyLaneW() {
+  $('#lanes').style.gridTemplateColumns = `minmax(0, ${laneW[0]}fr) 10px minmax(0, ${laneW[1]}fr) 10px minmax(0, ${laneW[2]}fr)`;
+}
+function laneHandle(i, box) {
+  const h = el('div', { class: 'lhandle', role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize. Double-click to reset.' }, el('i'));
+  h.addEventListener('dblclick', () => { laneW.fill(1); store.set('lanew', laneW); applyLaneW(); });
+  h.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    h.classList.add('drag');
+    const x0 = e.clientX, w0 = [...laneW];
+    const perPx = w0.reduce((a, b) => a + b, 0) / Math.max(1, box.clientWidth - 20);
+    const MIN = 0.45;
+    const move = (ev) => {
+      const d = Math.max(MIN - w0[i], Math.min(w0[i + 1] - MIN, (ev.clientX - x0) * perPx));
+      laneW[i] = w0[i] + d;
+      laneW[i + 1] = w0[i + 1] - d;
+      applyLaneW();
+    };
+    const up = () => { h.classList.remove('drag'); h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); store.set('lanew', laneW); };
+    h.addEventListener('pointermove', move);
+    h.addEventListener('pointerup', up);
+  });
+  return h;
+}
+
+/* ---- trade view: collapsible, resizable token list */
+S.nolist = store.get('nolist', false);
+S.bw = Math.max(300, Math.min(680, Number(store.get('bw', 410)) || 410));
+function applyBoard() {
+  const l = $('#layout');
+  l.classList.toggle('nolist', S.nolist);
+  l.style.setProperty('--bw', S.bw + 'px');
+  const b = $('#listBtn');
+  if (b) { b.classList.toggle('on', !S.nolist); b.title = S.nolist ? 'Show the token list ( [ )' : 'Hide the token list ( [ )'; }
+}
+function toggleList() { S.nolist = !S.nolist; store.set('nolist', S.nolist); applyBoard(); }
+function initBoardResize() {
+  const h = $('#bresize');
+  h.addEventListener('dblclick', () => { S.bw = 410; store.set('bw', S.bw); applyBoard(); });
+  h.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    h.classList.add('drag');
+    const x0 = e.clientX, w0 = S.bw;
+    const move = (ev) => { S.bw = Math.max(300, Math.min(680, Math.round(w0 + ev.clientX - x0))); applyBoard(); };
+    const up = () => { h.classList.remove('drag'); h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); store.set('bw', S.bw); };
+    h.addEventListener('pointermove', move);
+    h.addEventListener('pointerup', up);
+  });
 }
 function closePops() {
   for (const r of Object.values(laneRefs)) { r.pop.root.hidden = true; r.fbtn.setAttribute('aria-expanded', 'false'); }
@@ -497,6 +566,7 @@ function setView(v, mint) {
   store.set('view', S.view);
   $('#dash').hidden = S.view !== 'dash';
   $('#layout').hidden = S.view !== 'trade';
+  if (S.view === 'dash') { try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ } }
   document.querySelectorAll('#views button').forEach((b) => b.classList.toggle('on', b.dataset.view === S.view));
   if (mint) select(mint);
   renderBoard(true);
@@ -520,13 +590,14 @@ function buildHead(t) {
   const mcEl = el('b', {}, '');
   const chgEl = el('span', {}, '');
   const desc = el('div', { class: 'desc' });
+  const posEl = el('div', { class: 'tpos', hidden: true });
   const M = {};
   const metric = (k, l) => { const b = el('b', {}, '—'); M[k] = b; return el('div', { class: 'metric' }, el('span', {}, l), b); };
   const av = el('div', { class: 'av-slot' }, avatar(t.mint, t.symbol));
   av.style.display = 'contents';
-  box.replaceChildren(av, el('div', { class: 'tinfo' }, el('div', { class: 'tname' }, sym, nm, rk), el('div', { class: 'tsub' }, mintBtn, age_, scan, links)), el('div', { class: 'tprice' }, mcEl, chgEl),
+  box.replaceChildren(av, el('div', { class: 'tinfo' }, el('div', { class: 'tname' }, sym, nm, rk), el('div', { class: 'tsub' }, mintBtn, age_, scan, links)), el('div', { class: 'tprice' }, mcEl, chgEl, posEl),
     el('div', { class: 'metrics' }, metric('price', 'Price'), metric('vol', 'Volume 5m'), metric('tx', 'Buys / sells'), metric('holders', 'Holders'), metric('top10', 'Top 10 hold'), metric('prog', 'Curve progress'), metric('ath', 'All-time high'), metric('dev', 'Dev')), desc);
-  head = { sym, nm, rk, age_, links, mcEl, chgEl, M, desc, av, mint: t.mint };
+  head = { sym, nm, rk, age_, links, mcEl, chgEl, posEl, M, desc, av, mint: t.mint };
 }
 const DEV_TEXT = { sold_all: 'sold all', sold_some: 'selling', holding: 'holding', none: 'holds none', unknown: 'unknown' };
 function updateHead(t) {
@@ -548,6 +619,15 @@ function updateHead(t) {
   M.prog.textContent = t.complete ? 'graduated' : pct(t.prog, 1);
   M.ath.textContent = fmtMc(t.ath);
   M.dev.textContent = DEV_TEXT[t.dev] + (t.dev === 'holding' ? ' ' + pct(t.devPct, 1) : '');
+  updateHeadPos();
+}
+function updateHeadPos() {
+  if (!head) return;
+  const pos = S.paper?.positions.find((x) => x.mint === head.mint);
+  if (!pos || pos.pnlSol == null) { head.posEl.hidden = true; return; }
+  head.posEl.hidden = false;
+  head.posEl.className = 'tpos ' + (pos.pnlSol >= 0 ? 'up' : 'dn');
+  head.posEl.replaceChildren(el('span', {}, 'Your position'), el('b', {}, sgn(pos.pnlSol, 3) + ' SOL'), el('span', {}, `${sgn(pos.pnlPct, 1)}% · worth ${fmtSol(pos.value, 3)} SOL`));
 }
 async function loadMeta(mint) {
   const r = await getJson('/api/meta/' + mint).catch(() => null);
@@ -580,7 +660,8 @@ function buildChartBar() {
   const bar = $('#chartbar');
   const iv = el('div', { class: 'seg' }, Object.keys(STEP).map((k) => el('button', { class: S.interval === k ? 'on' : '', onclick: (e) => { S.interval = k; store.set('interval', k); iv.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); if (S.detail) chart.setData(S.detail.candles[k], STEP[k], chartOpts()); } }, k)));
   const un = el('div', { class: 'seg' }, [['usd', 'USD'], ['sol', 'SOL']].map(([k, l]) => el('button', { class: S.unit === k ? 'on' : '', onclick: (e) => { S.unit = k; store.set('unit', k); un.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); unitChanged(); } }, l)));
-  bar.replaceChildren(iv, un, el('span', { class: 'ml' }, 'Scroll to zoom, drag to pan, double-click for live'));
+  const listBtn = el('button', { type: 'button', id: 'listBtn', class: 'listbtn', 'aria-label': 'Toggle token list', onclick: toggleList }, '☰ Tokens');
+  bar.replaceChildren(listBtn, iv, un, el('span', { class: 'ml' }, 'Scroll to zoom, drag to pan, double-click for live'));
 }
 function unitChanged() {
   if (S.detail) chart.setStyle(chartOpts());
@@ -596,7 +677,8 @@ function unitChanged() {
 async function select(mint) {
   if (!mint) return;
   S.sel = mint;
-  try { history.replaceState(null, '', '#' + mint); } catch { /* ignore */ }
+  // Only the Trade view puts the token in the URL, so refreshing the dashboard stays on the dashboard.
+  try { if (S.view === 'trade') history.replaceState(null, '', '#' + mint); } catch { /* ignore */ }
   document.querySelectorAll('.row').forEach((r) => r.classList.toggle('sel', r._r.mint === mint));
   const d = await getJson(`/api/token/${mint}?cid=${S.cid}`).catch(() => null);
   if (S.sel !== mint) return;
@@ -921,6 +1003,7 @@ async function quickTrade(side, v) {
 
 function onPaper() {
   renderEquity();
+  updateHeadPos();
   renderPositions();
   refreshTradeUI();
   if (S.detail) chart.setStyle({ entry: chartOpts().entry });
@@ -978,7 +1061,9 @@ function renderPositions() {
   if (!p) return;
   const m = (l, v, cls = '') => el('div', { class: 'metric' }, el('span', {}, l), el('b', { class: cls }, v));
   const closed = p.wins + p.losses;
-  P.sum.replaceChildren(m('Balance', fmtSol(p.balance, 3) + ' SOL'), m('Realized', sgn(p.realized, 3), p.realized >= 0 ? 'up' : 'dn'), m('Win rate', closed ? pct(p.wins / closed, 0) + ` (${closed})` : '—'));
+  const totalPnl = p.equity - p.startSol;
+  const unrealPnl = p.positions.reduce((a, x) => a + (x.pnlSol || 0), 0);
+  P.sum.replaceChildren(m('Total PnL', sgn(totalPnl, 3) + ' SOL', totalPnl >= 0 ? 'up' : 'dn'), m('Balance', fmtSol(p.balance, 3) + ' SOL'), m('Realized', sgn(p.realized, 3), p.realized >= 0 ? 'up' : 'dn'), m('Open positions', sgn(unrealPnl, 3), unrealPnl >= 0 ? 'up' : 'dn'));
   if (S.posTab === 'open') {
     if (!p.positions.length) { P.list.replaceChildren(el('div', { class: 'empty' }, 'No open positions. Buy from the trade panel or hover a token in the list.')); return; }
     P.list.replaceChildren(...p.positions.map((x) => el('div', { class: 'pos', onclick: () => select(x.mint) },
@@ -1076,6 +1161,8 @@ buildQuick();
 $('#qtBtn').addEventListener('click', () => setQuick(Q.root.hidden));
 document.querySelectorAll('#views button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 buildChartBar();
+initBoardResize();
+applyBoard();
 buildDockTabs();
 buildTrade();
 buildRisk();
@@ -1087,7 +1174,8 @@ $('#search').addEventListener('input', (e) => { S.search = e.target.value; rende
 document.addEventListener('click', closePops);
 window.addEventListener('keydown', (e) => {
   const box = S.view === 'dash' ? laneRefs.new.search : $('#search');
-  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); box.focus(); }
+  if (e.key === '[' && document.activeElement?.tagName !== 'INPUT' && S.view === 'trade') { e.preventDefault(); toggleList(); }
+  else if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); box.focus(); }
   else if (e.key === 'Escape') { closePops(); if (document.activeElement === box) box.blur(); else if (Q.root && !Q.root.hidden && !Q.edit) setQuick(false); }
 });
 setInterval(() => { if (S.tokens.size) renderBoard(false); }, 1000);
