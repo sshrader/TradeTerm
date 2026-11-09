@@ -64,7 +64,7 @@ button { cursor: pointer; }
 
 /* ---------- aurora backdrop: the only decorative layer ---------- */
 .aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: var(--void); }
-.aurora i { position: absolute; width: 60vw; height: 60vw; border-radius: 50%; filter: blur(90px); opacity: 0.35; }
+.aurora i { position: absolute; width: 60vw; height: 60vw; border-radius: 50%; filter: blur(90px); opacity: 0.08; }
 .aurora i:first-child { background: var(--uv); left: -15vw; top: -35vw; animation: drift 38s ease-in-out infinite alternate; }
 .aurora i:last-child { background: var(--plasma); right: -20vw; bottom: -40vw; opacity: 0.03; animation: drift 46s ease-in-out infinite alternate-reverse; }
 @keyframes drift { to { transform: translate(8vw, 6vw) scale(1.12); } }
