@@ -2,18 +2,26 @@
   "name": "pulse-terminal",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Solana pump.fun trading terminal. Paper trading first. The server has no dependencies; the chart uses TradingView Lightweight Charts.",
+  "description": "Personal Solana pump.fun trading terminal. Paper trading first, plus an optional owner-only coin launcher. The server has no runtime dependencies; the browser bundle for the launcher is built with esbuild.",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "lightweight-charts": "4.2.0"
+    "lightweight-charts": "4.2.0",
+    "@pump-fun/pump-sdk": "4.1.0",
+    "@solana/web3.js": "^1.98.0",
+    "bn.js": "^5.2.1",
+    "buffer": "^6.0.3"
   },
   "scripts": {
     "start": "node server/index.js",
     "demo": "node server/index.js --demo",
-    "test": "node --test"
+    "test": "node --test",
+    "build": "node scripts/build-launch.mjs"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
 }

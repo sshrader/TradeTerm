@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Launch a coin</title>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/launch/launch.css">
+</head>
+<body>
+<header class="top">
+  <a class="back" href="/">Terminal</a>
+  <h1>Launch a coin on pump.fun</h1>
+  <span id="net" class="badge">…</span>
+  <span class="grow"></span>
+  <span id="bal" class="dim"></span>
+  <button id="connect" class="btn">Connect Phantom</button>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main class="grid">
+  <form id="form" class="card" autocomplete="off" novalidate>
+    <h2>Coin</h2>
+    <div class="row2">
+      <label>Name<input id="name" maxlength="32" placeholder=""></label>
+      <label>Ticker<input id="symbol" maxlength="10" placeholder="" spellcheck="false"></label>
+    </div>
+    <label>Description<textarea id="desc" rows="3" maxlength="600"></textarea></label>
+    <label class="pic">Picture
+      <span class="picbox">
+        <img id="preview" alt="" hidden>
+        <input id="image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+      </span>
+      <small>PNG, JPG, GIF or WebP, up to 1.5 MB. Square works best.</small>
+    </label>
+
+    <h2>Links <small>optional</small></h2>
+    <label>Website<input id="website" inputmode="url" placeholder="https://"></label>
+    <div class="row2">
+      <label>X / Twitter<input id="twitter" inputmode="url" placeholder="https://x.com/"></label>
+      <label>Telegram<input id="telegram" inputmode="url" placeholder="https://t.me/"></label>
+    </div>
+
+    <h2>Dev buy</h2>
+    <label>Amount in SOL <small id="cap"></small><input id="buy" inputmode="decimal" placeholder=""></label>
+    <p class="hint" id="quote">The dev buy happens in the same transaction as the launch, so nobody can buy before you.</p>
+
+    <div id="confirmrow" class="confirm" hidden>
+      <label>Real money. Type the ticker <b id="confirmtick"></b> to confirm<input id="confirm" spellcheck="false"></label>
+    </div>
+    <div class="actions">
+      <button id="go" type="submit" class="btn primary" disabled>Launch</button>
+      <button id="drop" type="button" class="btn" hidden>Get 1 devnet SOL</button>
+    </div>
+    <p id="err" class="err" role="alert" hidden></p>
+  </form>
+
+  <section class="side">
+    <div class="card">
+      <h2>Progress</h2>
+      <ol id="steps" class="steps"><li class="empty">Steps appear here once you press Launch. Your wallet asks you to approve each signature.</li></ol>
+      <div id="result" class="result" hidden></div>
+    </div>
+    <div class="card">
+      <h2>Creator fees</h2>
+      <p class="hint">Fees from trading your coins collect in your wallet's creator vault.</p>
+      <div class="actions"><button id="feeCheck" class="btn" type="button" disabled>Check</button><button id="feeClaim" class="btn" type="button" disabled>Claim</button><span id="feeOut" class="dim"></span></div>
+    </div>
+    <div class="card">
+      <h2>Launched</h2>
+      <ul id="hist" class="hist"><li class="empty">Nothing launched yet.</li></ul>
+    </div>
+  </section>
+</main>
+<script type="module" src="/launch/boot.js"></script>
+</body>
+</html>

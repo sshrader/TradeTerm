@@ -14,6 +14,7 @@ import { verifyMint } from './chain.js';
 import { getMeta, getImage } from './meta.js';
 import { fetchSolUsd } from './price.js';
 import { Demo } from './demo.js';
+import * as launch from './launch.js';
 
 const WEB = path.join(ROOT, 'web');
 const mode = config.demo ? 'demo' : 'live';
@@ -349,10 +350,24 @@ let verifying = false;
 // ---------------------------------------------------------------- routes
 async function route(req, res) {
   if (!guard(req, res)) return;
+  const pub = new URL(req.url, 'http://localhost').pathname;
+  // The coin's info file and picture must be readable by pump.fun and wallets, so they sit outside the password gate.
+  if (launch.launchEnabled() && launch.handlePublic(req, res, pub)) return;
   if (!authorized(req, res)) return;
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const get = req.method === 'GET' || req.method === 'HEAD';
+
+  // Owner-only launch tools. Invisible (404) when switched off and for view-only visitors.
+  if (p === '/launch' || p.startsWith('/launch/') || p.startsWith('/api/launch')) {
+    if (!launch.launchEnabled() || req._viewOnly) return fail(res, 404, 'Not found');
+    if (p.startsWith('/api/launch')) {
+      const proto = String(req.headers['x-forwarded-proto'] || '').split(',').pop().trim() || 'http';
+      const base = `${proto}://${req.headers.host}`;
+      if (await launch.handleApi(req, res, p, { json, fail, readJson, base })) return;
+    }
+    return serveStatic(res, p === '/launch' ? '/launch.html' : p);
+  }
 
   if (get && p === '/login') {
     res.writeHead(302, { location: '/', 'cache-control': 'no-store', ...SEC });

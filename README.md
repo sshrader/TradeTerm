@@ -1,6 +1,6 @@
 # Pulse terminal
 
-A personal Solana trading terminal for pump.fun tokens. One process on your own machine, no build step. The only dependency is TradingView's open-source Lightweight Charts, used for the price chart. Version 0.1 does **paper trading only**: real market data, simulated fills, no wallet, no funds at risk.
+A personal Solana trading terminal for pump.fun tokens. One process on your own machine. The chart is TradingView's open-source Lightweight Charts. An optional, hidden owner page (`/launch`) can create a coin on pump.fun; only that page needs a build step. Version 0.1 does **paper trading only**: real market data, simulated fills, no wallet, no funds at risk.
 
 ## Run it
 
@@ -52,6 +52,26 @@ The server detects Railway, listens on all interfaces and uses the `PORT` Railwa
 **Public demo for friends.** Set `DEMO=1` and `PUBLIC_VIEW=1`. Anyone with the URL can browse the simulated market with no login, but trading, the kill switch and settings are turned off, and your paper account is never sent to them. To trade yourself, open `/login` on your site and enter your `ACCESS_PASSWORD`. `PUBLIC_VIEW` is ignored with live data, so a real feed always stays behind the password.
 
 Ten wrong passwords from one address in ten minutes locks that address out for a while. Without a volume, the paper account resets on each deploy.
+
+## Launch a coin (owner only, optional)
+
+A hidden admin page at `/launch` creates a coin on pump.fun and does your dev buy in the same transaction. It is **off by default** and returns 404 until you turn it on. The form opens blank: name, ticker, description, picture, website / X / Telegram links and dev buy amount.
+
+Your Phantom wallet builds and signs the transaction in the browser, so the server never holds a private key. The server only hosts the coin's info file and picture (pump.fun reads them from a public https link, and they are fixed once the coin exists), forwards a short allowlist of RPC calls so a private RPC key stays off the page, and remembers what you launched.
+
+| Variable | Meaning |
+|---|---|
+| `LAUNCH_ENABLED` | `1` turns the page and its API on |
+| `LAUNCH_NETWORK` | `devnet` (default, practice SOL) or `mainnet`. You can also flip it with the badge on the page |
+| `LAUNCH_RPC_URL` | Mainnet RPC to forward to (use your Helius URL). Default is the public Solana endpoint. It is never sent to the browser |
+| `LAUNCH_MAX_DEV_BUY_SOL` | Cap on the dev buy. Default 5 |
+| `LAUNCH_PUBLIC_URL` | Public https address of this server for the coin info link. Railway's domain is used automatically |
+| `LAUNCH_OWNER` | Optional wallet address. If set, only that wallet can record a launch |
+| `LAUNCH_ONE_ONLY` | `1` allows one launch per network |
+
+Setup: `npm install`, then `npm run build` (Railway runs it for you on deploy) bundles the pump.fun code into `web/launch/core.js`. Set `LAUNCH_ENABLED=1`, open `/launch`, connect Phantom, **rehearse on devnet first** (the page has a "Get 1 devnet SOL" button), then switch to mainnet. A mainnet launch needs a public https address and asks you to type the ticker to confirm. It spends real SOL: the dev buy plus roughly 0.08 SOL of fees. The first launch from a wallet also creates a small address lookup table, which costs one or two extra wallet approvals.
+
+The page is behind your password like the rest of the site, and view-only visitors never see it. The coin info and picture links are the only public parts.
 
 ## What's in it
 
@@ -129,9 +149,11 @@ A round trip typically costs 4-6% before the price moves at all. That is realist
 
 ```
 server/   index.js (HTTP + SSE), decoder.js, store.js, risk.js, paper.js, wallets.js,
-          rpc.js, chain.js, meta.js, price.js, demo.js, config.js, util.js
-web/      index.html, app.css, app.js, lwchart.js (TradingView chart), chart.js (fallback)
-test/     decoder and paper-engine tests (npm test)
+          rpc.js, chain.js, meta.js, price.js, demo.js, config.js, util.js, launch.js
+web/      index.html, app.css, app.js, lwchart.js (TradingView chart), chart.js (fallback),
+          launch.html + launch/ (owner launch page; core.js is built)
+launch-src/ pump.fun launch code bundled into web/launch/core.js by npm run build
+test/     decoder, paper-engine, chart and launch tests (npm test)
 data/     created at runtime: paper account, watchlist, credit counter
 ```
 
