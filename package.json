@@ -1,0 +1,16 @@
+{
+  "name": "pulse-terminal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Solana pump.fun trading terminal. Paper trading first, zero dependencies.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "demo": "node server/index.js --demo",
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

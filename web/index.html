@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Pulse terminal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e0f1a'/%3E%3Cpath d='M3 17h6l3-9 5 16 3-7h9' fill='none' stroke='%237c5cff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i></div>
+
+<header id="topbar">
+  <div class="brand">
+    <canvas id="hb" width="168" height="36" aria-hidden="true"></canvas>
+    <span class="wm">pulse</span>
+  </div>
+  <div id="modepill" class="pill">connecting</div>
+  <div class="stats" id="stats"></div>
+  <div class="spacer"></div>
+  <div id="equity" class="equity"></div>
+  <button id="kill" class="kill" type="button" title="Blocks new buys. Exits and TP/SL stay active."></button>
+</header>
+<div id="banner" class="banner" hidden></div>
+
+<main id="layout">
+  <section id="board" class="panel">
+    <div class="tabs" id="boardTabs" role="tablist"></div>
+    <div class="tools">
+      <input id="search" type="search" placeholder="Search symbol, name or mint  ( / )" autocomplete="off" spellcheck="false">
+      <label class="toggle"><input type="checkbox" id="hideHigh"><span>Hide high risk</span></label>
+    </div>
+    <div id="list" class="scroll"></div>
+  </section>
+
+  <section id="center">
+    <div id="thead" class="panel"></div>
+    <div id="chartPanel" class="panel">
+      <div id="chartbar"></div>
+      <div id="chartwrap"><canvas id="chart"></canvas><div id="chartEmpty" class="empty">Pick a token from the list to open its chart.</div></div>
+    </div>
+    <div id="dock" class="panel">
+      <div class="tabs" id="dockTabs" role="tablist"></div>
+      <div id="dockBody" class="scroll"></div>
+    </div>
+  </section>
+
+  <aside id="side">
+    <div id="tradeCard" class="card"></div>
+    <div id="riskCard" class="card"></div>
+    <div id="posCard" class="card"></div>
+  </aside>
+</main>
+
+<div id="toasts" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
