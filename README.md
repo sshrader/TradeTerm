@@ -56,6 +56,7 @@ Ten wrong passwords from one address in ten minutes locks that address out for a
 | Area | What it does |
 |---|---|
 | Dashboard | Opens first: three swimlanes (New, Final stretch, Graduated), each token in one lane. Click a token to open it in the Trade view. A filter bar narrows all lanes by market cap, volume, holders, top-10 share, age, curve progress, 5m change and bundled / dev-sold flags, with presets |
+| Quick trade | Floating, draggable buy/sell window (top bar button, Esc to close). One click on an amount buys, one click on a percent sells, for whichever token is selected. Presets are editable (pencil) and TP/SL are set in the window. Paper trades only |
 | Trade view | Board tabs (New / Hot / Final stretch / Graduated) with market cap, 5m volume, holders, curve progress, risk level and quick-buy buttons |
 | Chart | TradingView Lightweight Charts: candles and volume built locally from trades (1s, 5s, 15s, 1m), USD or SOL, crosshair, zoom and pan, your entry line |
 | Risk check | 0-100 score from dev behaviour, holder concentration, snipers, bundled launches and sell pressure. "Verify on-chain" adds mint and freeze authority plus real top-holder numbers |

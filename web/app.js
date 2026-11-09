@@ -409,7 +409,8 @@ function setView(v, mint) {
   renderBoard(true);
 }
 function openToken(mint) {
-  if (S.view !== 'trade') setView('trade', mint); else select(mint);
+  // With the quick-trade window open on the dashboard, a click just picks the token so you can trade it in place.
+  if (S.view !== 'trade' && !(Q.root && !Q.root.hidden)) setView('trade', mint); else select(mint);
 }
 
 /* ------------------------------------------------------------------ token header */
@@ -658,6 +659,7 @@ function refreshTradeUI() {
   T.btn.disabled = dis;
   T.btn.textContent = label;
   const L = S.paper?.limits;
+  updateQuick();
   T.note.textContent = L ? `Limits: ${L.maxPositionSol} SOL per token, ${L.maxOpen} positions, ${L.dailyLossCapSol} SOL daily loss cap. Fills include fees, ${(L.slippageBps / 100).toFixed(1)}% slippage and a ${L.priorityFeeSol} SOL priority fee.` : '';
 }
 let qTimer = null;
@@ -697,6 +699,133 @@ async function quickBuy(mint, sol) {
   const r = await post('/api/paper/buy', { mint, sol, tp: S.tp || null, sl: S.sl || null });
   if (r.ok) { S.paper = r.paper; toast('Bought ' + (t?.symbol || short(mint)), `${fmtSol(r.fill.spent, 3)} SOL`, 'good'); onPaper(); } else toast('Buy blocked', r.error, 'bad');
 }
+/* ------------------------------------------------------------------ quick trade (floating window) */
+const Q = { busy: false, edit: false, buy: store.get('qbuy', [0.1, 0.25, 0.5, 1]), sell: store.get('qsell', [100, 75, 50, 10]), pos: store.get('qpos', null) };
+function buildQuick() {
+  const root = el('div', { class: 'qt', id: 'qt', role: 'dialog', 'aria-label': 'Quick trade', hidden: true });
+  Q.root = root;
+  Q.sym = el('b', {}, 'No token');
+  Q.px = el('span', { class: 'qpx' });
+  Q.edit_ = el('button', { type: 'button', class: 'qicon', title: 'Edit preset amounts', 'aria-label': 'Edit presets', onclick: () => toggleQuickEdit() }, '✎');
+  const close = el('button', { type: 'button', class: 'qicon', title: 'Close (Esc)', 'aria-label': 'Close quick trade', onclick: () => setQuick(false) }, '✕');
+  Q.head = el('div', { class: 'qt-head' }, el('span', { class: 'qgrip', 'aria-hidden': 'true' }, '⠿'), Q.sym, Q.px, el('span', { class: 'fsp' }), Q.edit_, close);
+  Q.bal = el('span', { class: 'qbal' });
+  Q.pos_ = el('span', { class: 'qbal' });
+  Q.buyGrid = el('div', { class: 'qgrid buy' });
+  Q.sellGrid = el('div', { class: 'qgrid sell' });
+  const tp = el('input', { type: 'number', min: '0', step: '10', 'aria-label': 'Take profit percent' });
+  const sl = el('input', { type: 'number', min: '0', max: '99', step: '5', 'aria-label': 'Stop loss percent' });
+  tp.value = S.tp; sl.value = S.sl;
+  tp.addEventListener('input', () => { S.tp = Number(tp.value) || 0; store.set('tp', S.tp); if (T.tp) T.tp.value = S.tp; });
+  sl.addEventListener('input', () => { S.sl = Number(sl.value) || 0; store.set('sl', S.sl); if (T.sl) T.sl.value = S.sl; });
+  Q.tp = tp; Q.sl = sl;
+  Q.fees = el('span', { class: 'qfee' });
+  Q.note = el('div', { class: 'qnote' });
+  root.append(Q.head,
+    el('div', { class: 'qt-sec' }, el('div', { class: 'qtitle buy' }, el('span', {}, 'Buy (SOL)'), Q.bal), Q.buyGrid,
+      el('div', { class: 'qmeta' }, el('label', {}, 'TP', tp, '%'), el('label', {}, 'SL', sl, '%'), Q.fees)),
+    el('div', { class: 'qt-sec' }, el('div', { class: 'qtitle sell' }, el('span', {}, 'Sell %'), Q.pos_), Q.sellGrid),
+    Q.note);
+  document.body.append(root);
+  renderQuickButtons();
+  // Drag by the header. The position is remembered and always clamped back onto the screen.
+  Q.head.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    const r = root.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    Q.head.setPointerCapture(e.pointerId);
+    const move = (ev) => placeQuick(ev.clientX - dx, ev.clientY - dy);
+    const up = () => { Q.head.removeEventListener('pointermove', move); Q.head.removeEventListener('pointerup', up); const b = root.getBoundingClientRect(); store.set('qpos', { x: b.left, y: b.top }); };
+    Q.head.addEventListener('pointermove', move);
+    Q.head.addEventListener('pointerup', up);
+  });
+  window.addEventListener('resize', () => { if (!root.hidden) { const b = root.getBoundingClientRect(); placeQuick(b.left, b.top); } });
+}
+function placeQuick(x, y) {
+  const r = Q.root.getBoundingClientRect();
+  const nx = Math.max(6, Math.min(window.innerWidth - r.width - 6, x));
+  const ny = Math.max(6, Math.min(window.innerHeight - 60, y));
+  Q.root.style.left = nx + 'px';
+  Q.root.style.top = ny + 'px';
+}
+function setQuick(on) {
+  Q.root.hidden = !on;
+  document.querySelector('#qtBtn')?.classList.toggle('on', on);
+  if (on) {
+    Q.root.style.left = '0px'; Q.root.style.top = '0px'; // measure first, then place
+    const d = Q.pos || { x: window.innerWidth - 372, y: 110 };
+    placeQuick(d.x, d.y);
+    updateQuick();
+  }
+}
+function toggleQuickEdit() {
+  if (Q.edit) {
+    const read = (grid, lo, hi) => [...grid.querySelectorAll('input')].map((i) => Number(i.value)).map((n) => Math.min(hi, Math.max(lo, n || lo)));
+    Q.buy = read(Q.buyGrid, 0.001, 1000).map((n) => Math.round(n * 1000) / 1000);
+    Q.sell = read(Q.sellGrid, 1, 100).map(Math.round);
+    store.set('qbuy', Q.buy); store.set('qsell', Q.sell);
+  }
+  Q.edit = !Q.edit;
+  Q.edit_.classList.toggle('on', Q.edit);
+  Q.edit_.textContent = Q.edit ? '✓' : '✎';
+  Q.edit_.title = Q.edit ? 'Save presets' : 'Edit preset amounts';
+  renderQuickButtons();
+}
+function renderQuickButtons() {
+  const cell = (v, suffix, side) => {
+    if (Q.edit) {
+      const i = el('input', { type: 'number', step: side === 'buy' ? '0.01' : '5', min: '0', 'aria-label': side + ' preset' });
+      i.value = v;
+      return i;
+    }
+    return el('button', { type: 'button', class: 'qbtn', 'data-v': v, onclick: () => quickTrade(side, v) }, String(v) + suffix);
+  };
+  Q.buyGrid.replaceChildren(...Q.buy.map((v) => cell(v, '', 'buy')));
+  Q.sellGrid.replaceChildren(...Q.sell.map((v) => cell(v, '%', 'sell')));
+  updateQuick();
+}
+function updateQuick() {
+  if (!Q.root || Q.root.hidden) return;
+  const t = S.tokens.get(S.sel);
+  const p = S.paper;
+  const pos = p?.positions.find((x) => x.mint === S.sel);
+  Q.sym.textContent = t ? t.symbol || short(t.mint) : 'No token';
+  Q.px.textContent = t ? fmtMc(t.mcap) : '';
+  Q.bal.textContent = p ? fmtSol(p.balance, 3) + ' SOL' : '';
+  if (pos) {
+    Q.pos_.textContent = `${fmtSol(pos.value ?? pos.costSol, 3)} SOL · ${pos.pnlPct == null ? '' : sgn(pos.pnlPct, 1) + '%'}`;
+    Q.pos_.className = 'qbal ' + (pos.pnlPct == null ? '' : pos.pnlPct >= 0 ? 'up' : 'dn');
+  } else { Q.pos_.textContent = 'no position'; Q.pos_.className = 'qbal'; }
+  const L = p?.limits;
+  Q.fees.textContent = L ? `${L.priorityFeeSol} SOL fee · ${(L.slippageBps / 100).toFixed(1)}% slip` : '';
+  let why = '';
+  if (!t) why = 'Pick a token to trade.';
+  else if (t.complete) why = 'Graduated: the curve is closed.';
+  else if (p && !p.enabled) why = 'Kill switch is on. Buys are blocked, sells still work.';
+  const noBuy = Boolean(why) || Q.busy;
+  Q.buyGrid.querySelectorAll('button').forEach((b) => { b.disabled = noBuy; });
+  Q.sellGrid.querySelectorAll('button').forEach((b) => { b.disabled = !pos || Q.busy; });
+  Q.note.textContent = why;
+  Q.note.hidden = !why;
+}
+async function quickTrade(side, v) {
+  const t = S.tokens.get(S.sel);
+  if (!t || Q.busy) return;
+  Q.busy = true; updateQuick();
+  const sym = t.symbol || short(t.mint);
+  try {
+    if (side === 'buy') {
+      const r = await post('/api/paper/buy', { mint: S.sel, sol: v, tp: S.tp || null, sl: S.sl || null });
+      if (r.ok) { S.paper = r.paper; toast('Bought ' + sym, `${fmtSol(r.fill.spent, 3)} SOL for ${compact(r.fill.tokens)} tokens`, 'good'); } else toast('Buy blocked', r.error, 'bad');
+    } else {
+      const r = await post('/api/paper/sell', { mint: S.sel, pct: v });
+      if (r.ok) { S.paper = r.paper; toast('Sold ' + sym, `${fmtSol(r.fill.proceeds, 3)} SOL, PnL ${sgn(r.fill.pnl, 3)}`, r.fill.pnl >= 0 ? 'good' : 'bad'); } else toast('Sell blocked', r.error, 'bad');
+    }
+  } catch { toast('Trade failed', 'Could not reach the server.', 'bad'); }
+  Q.busy = false;
+  onPaper();
+}
+
 function onPaper() {
   renderEquity();
   renderPositions();
@@ -849,6 +978,8 @@ try { chart = (await loadLW()) ? new LWChart($('#chart')) : new Chart($('#chart'
 buildBoardTabs();
 buildLanes();
 buildFilters();
+buildQuick();
+$('#qtBtn').addEventListener('click', () => setQuick(Q.root.hidden));
 document.querySelectorAll('#views button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 buildChartBar();
 buildDockTabs();
@@ -868,7 +999,7 @@ $('#dsearch').addEventListener('input', onSearch);
 window.addEventListener('keydown', (e) => {
   const box = S.view === 'dash' ? $('#dsearch') : $('#search');
   if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); box.focus(); }
-  else if (e.key === 'Escape') { box.blur(); }
+  else if (e.key === 'Escape') { if (document.activeElement === box) box.blur(); else if (Q.root && !Q.root.hidden && !Q.edit) setQuick(false); }
 });
 setInterval(() => { if (S.tokens.size) renderBoard(false); }, 1000);
 setInterval(pollTop, 5000);
