@@ -24,6 +24,25 @@ The pill at the top left shows `live` once the stream is connected. If it says `
 
 Add `--open` to launch the browser automatically.
 
+## Deploy on Railway
+
+The server detects Railway, listens on all interfaces and uses the `PORT` Railway injects. Because the URL is public, it is **password protected**.
+
+1. Create a Railway project from this GitHub repo. No build config is needed.
+2. Add these variables on the service:
+
+| Variable | Value |
+|---|---|
+| `HELIUS_API_KEY` | Your Helius key. Without it the app runs in demo mode |
+| `ACCESS_PASSWORD` | A password you choose. If unset, a random one is generated and printed in the deploy logs on every start |
+| `DATA_DIR` | Optional. Path of a mounted Railway volume (for example `/data`) to keep the paper account across deploys |
+| `NIXPACKS_NODE_VERSION` | `22`, only if the build picks an older Node |
+
+3. Under Settings > Networking, generate a public domain, then open it.
+4. The browser asks for a login. Enter any username and your password.
+
+Ten wrong passwords from one address in ten minutes locks that address out for a while. Without a volume, the paper account resets on each deploy.
+
 ## What's in it
 
 | Area | What it does |
@@ -68,7 +87,7 @@ A round trip typically costs 4-6% before the price moves at all. That is realist
 
 ## Security
 
-- The server binds to `127.0.0.1` only and rejects requests with a foreign Host or Origin (DNS-rebinding and cross-site POST protection).
+- Locally the server binds to `127.0.0.1` only (set `HOST` to change it). On a public host it requires a password (HTTP Basic auth). Locally it rejects requests with a foreign Host or Origin (DNS-rebinding and cross-site POST protection).
 - The API key lives in `.env`, is never sent to the browser, and is scrubbed from logs and error messages.
 - Token names, symbols and metadata are attacker-controlled. They are stripped of control and bidi characters, rendered as text (never HTML), and only IPFS content is fetched, through fixed public gateways. Images are size-capped, raster only, and verified by magic bytes.
 - A strict Content-Security-Policy is set on every response.

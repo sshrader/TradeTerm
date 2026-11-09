@@ -176,15 +176,66 @@ function json(res, code, obj) {
 }
 const fail = (res, code, error) => json(res, code, { ok: false, error });
 
-// Blocks DNS-rebinding (Host check) and cross-site POSTs (Origin + JSON content type).
+// Password gate for any non-loopback deployment. If none is configured, a random one is generated
+// for this run and printed once in the startup log, so a public URL is never open by accident.
+let accessPassword = config.accessPassword;
+let generatedPassword = false;
+if (!config.loopback && !accessPassword) {
+  accessPassword = crypto.randomBytes(12).toString('base64url');
+  generatedPassword = true;
+}
+const sha = (s) => crypto.createHash('sha256').update(s).digest();
+const pwDigest = accessPassword ? sha(accessPassword) : null;
+const failures = new Map(); // ip -> { n, t }
+// Behind a proxy the LAST x-forwarded-for entry is the one the proxy appended; earlier entries are client-supplied.
+const clientIp = (req) => String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress || '?';
+
+// HTTP Basic auth (any username). Browsers prompt once, then send it on every request including the
+// event stream. Ten wrong passwords from one address lock it out for ten minutes.
+function authorized(req, res) {
+  if (!pwDigest) return true;
+  const ip = clientIp(req);
+  const f = failures.get(ip);
+  const recent = f && Date.now() - f.t < 10 * 60_000;
+  if (recent && f.n >= 10) {
+    fail(res, 429, 'Too many wrong passwords. Try again in ten minutes.');
+    return false;
+  }
+  const h = String(req.headers.authorization || '');
+  if (h.startsWith('Basic ')) {
+    const pass = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':').slice(1).join(':');
+    if (crypto.timingSafeEqual(sha(pass), pwDigest)) {
+      failures.delete(ip);
+      return true;
+    }
+    if (failures.size > 1000) failures.clear();
+    failures.set(ip, { n: (recent ? f.n : 0) + 1, t: Date.now() });
+  }
+  res.writeHead(401, { 'www-authenticate': 'Basic realm="Pulse terminal", charset="UTF-8"', 'content-type': 'text/plain; charset=utf-8', ...SEC });
+  res.end('Password required');
+  return false;
+}
+
+// Loopback mode blocks DNS-rebinding (Host allowlist). Every mode blocks cross-site POSTs:
+// the Origin must match the Host the request was sent to, and the body must be JSON (forces a preflight).
+// Non-loopback deployments rely on the password gate instead of a Host allowlist.
 function guard(req, res) {
-  if (!allowedHosts.has(String(req.headers.host || '').toLowerCase())) {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (config.loopback && !allowedHosts.has(host)) {
     fail(res, 403, 'Forbidden host');
     return false;
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const o = req.headers.origin;
-    if (o && !(o.startsWith('http://') && allowedHosts.has(o.slice(7).toLowerCase()))) {
+    let sameOrigin = !o;
+    if (o) {
+      try {
+        sameOrigin = new URL(o).host.toLowerCase() === host;
+      } catch {
+        sameOrigin = false;
+      }
+    }
+    if (!sameOrigin) {
       fail(res, 403, 'Forbidden origin');
       return false;
     }
@@ -276,6 +327,7 @@ let verifying = false;
 // ---------------------------------------------------------------- routes
 async function route(req, res) {
   if (!guard(req, res)) return;
+  if (!authorized(req, res)) return;
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const get = req.method === 'GET' || req.method === 'HEAD';
@@ -433,10 +485,10 @@ loadState();
 updatePins();
 
 server.listen(config.port, config.host, async () => {
-  const url = `http://localhost:${config.port}`;
+  const url = config.publicUrl || `http://localhost:${config.port}`;
   console.log(`\n  PULSE terminal v${config.version}`);
   if (config.demo) {
-    console.log(`  mode  : DEMO (simulated market)${config.demoReason === 'no-key' ? ' - add HELIUS_API_KEY to .env for live data' : ''}`);
+    console.log(`  mode  : DEMO (simulated market)${config.demoReason === 'no-key' ? ' - set HELIUS_API_KEY (.env locally, or a variable on your host) for live data' : ''}`);
     demo = new Demo(market);
     demo.start();
     if (!market.watch.size) demo.smart.slice(0, 3).forEach((w, i) => market.watch.set(w, `Demo smart #${i + 1}`));
@@ -449,6 +501,14 @@ server.listen(config.port, config.host, async () => {
       .call('getSlot', [], { retries: 0 })
       .then((s) => console.log(`  rpc   : ok (slot ${s})`))
       .catch((e) => console.log(`  rpc   : FAILED - ${redact(e.message)}`));
+  }
+  console.log(`  bind  : ${config.host}:${config.port}${config.loopback ? ' (this machine only)' : ''}`);
+  if (pwDigest) {
+    console.log('  access: password required (any username)');
+    if (generatedPassword) {
+      console.log(`  ACCESS_PASSWORD is not set, so a random password was generated for this run: ${accessPassword}`);
+      console.log('  Set ACCESS_PASSWORD to choose your own and keep it across restarts.');
+    }
   }
   console.log(`  open  : ${url}\n`);
   refreshSol();

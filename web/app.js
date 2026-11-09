@@ -158,7 +158,7 @@ function onStatus(st) {
   if (st.mode === 'demo') {
     banner.hidden = false;
     banner.textContent = st.demoReason === 'no-key'
-      ? 'Simulated market. Nothing here is real. Add HELIUS_API_KEY to the .env file and restart to switch to live pump.fun data.'
+      ? 'Simulated market. Nothing here is real. Set HELIUS_API_KEY (in .env locally, or as a variable on your host) and restart to switch to live pump.fun data.'
       : 'Simulated market (started with --demo). Nothing here is real.';
   } else if (st.stream.error) { banner.hidden = false; banner.textContent = 'Stream: ' + st.stream.error; }
   else if (st.rpc && st.rpc.ok === false) { banner.hidden = false; banner.textContent = 'RPC: ' + st.rpc.error; }

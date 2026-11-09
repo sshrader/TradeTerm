@@ -39,9 +39,19 @@ addSecret(key);
 const forcedDemo = argv.includes('--demo') || process.env.DEMO === '1';
 const demo = forcedDemo || !key;
 
+// On Railway the container must listen on all interfaces so the platform proxy can reach it.
+// Locally we stay on loopback. HOST overrides either default.
+const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+const host = (process.env.HOST || (onRailway ? '0.0.0.0' : '127.0.0.1')).trim();
+const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+const publicDomain = (process.env.RAILWAY_PUBLIC_DOMAIN || '').trim();
+
 export const config = {
   version: '0.1.0',
-  host: '127.0.0.1',
+  host,
+  loopback,
+  publicUrl: publicDomain ? `https://${publicDomain}` : null,
+  accessPassword: (process.env.ACCESS_PASSWORD || '').trim(),
   port: num('PORT', 8787),
   openBrowser: argv.includes('--open'),
   demo,
@@ -54,7 +64,8 @@ export const config = {
   maxTokens: num('MAX_TOKENS', 800),
   partialMinSol: num('PARTIAL_MIN_SOL', 0.5),
   defaultFeeBps: 125,
-  dataDir: path.join(ROOT, 'data'),
+  // Point DATA_DIR at a mounted volume (for example /data on Railway) to keep the paper account across deploys.
+  dataDir: process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data'),
   paper: {
     startSol: num('PAPER_START_SOL', 10),
     maxPositionSol: num('MAX_POSITION_SOL', 1),
