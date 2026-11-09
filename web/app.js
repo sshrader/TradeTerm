@@ -525,6 +525,7 @@ function buildLanes() {
   box.replaceChildren(...LANES.map((L) => {
     const c = cfgOf(L.id);
     const n = el('span', { class: 'n' }, '0');
+    const pz = el('span', { class: 'lpause', hidden: true, title: 'This lane is frozen while your mouse is over it' }, '⏸ Paused');
     const search = el('input', { type: 'search', class: 'lsearch', placeholder: 'Search', autocomplete: 'off', spellcheck: 'false', 'aria-label': `Search ${L.title}` });
     search.value = c.q || '';
     search.addEventListener('input', () => { c.q = search.value; saveCfg(); renderBoard(true); });
@@ -534,12 +535,15 @@ function buildLanes() {
     const badge = el('b', { class: 'badge', hidden: true }, '0');
     const fbtn = el('button', { type: 'button', class: 'lfilter', title: 'Filters for this lane', 'aria-label': `Filters for ${L.title}`, 'aria-expanded': 'false' }, el('svg', {}), badge);
     fbtn.firstChild.outerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M3 5h14M6 10h8M9 15h2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
-    const head = el('header', { class: 'lh' }, el('h2', {}, el('i', { class: 'ldot' }), L.title, n), search, el('label', { class: 'lamt', title: 'Quick-buy amount (SOL) for the ⚡ button on each card' }, '⚡', amt), fbtn);
+    const head = el('header', { class: 'lh' }, el('h2', {}, el('i', { class: 'ldot' }), L.title, n, pz), search, el('label', { class: 'lamt', title: 'Quick-buy amount (SOL) for the ⚡ button on each card' }, '⚡', amt), fbtn);
     const list = el('div', { class: 'lanelist scroll' });
     const pop = buildLanePop(L, c, () => { saveCfg(); updateLaneBadge(L.id); renderBoard(true); });
     const sec = el('section', { class: 'lane', style: `--tone:${L.tone}` }, head, pop.root, list);
     fbtn.addEventListener('click', (e) => { e.stopPropagation(); const open = pop.root.hidden; closePops(); pop.root.hidden = !open; fbtn.setAttribute('aria-expanded', String(open)); });
-    laneRefs[L.id] = { n, list, rows: new Map(), badge, fbtn, pop, search, amt };
+    laneRefs[L.id] = { n, pz, paused: false, list, rows: new Map(), badge, fbtn, pop, search, amt };
+    // Hovering a lane freezes just that lane (no new cards, no reordering) so the card under the mouse never jumps.
+    sec.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') setLanePaused(L.id, true); });
+    sec.addEventListener('pointerleave', () => setLanePaused(L.id, false));
     updateLaneBadge(L.id);
     return sec;
   }));
@@ -605,6 +609,14 @@ function initBoardResize() {
     h.addEventListener('pointerup', up);
   });
 }
+function setLanePaused(id, on) {
+  const r = laneRefs[id];
+  if (!r || r.paused === on) return;
+  r.paused = on;
+  r.pz.hidden = !on;
+  r.pz.textContent = '⏸ Paused';
+  if (!on) renderBoard(false); // catch up as soon as the mouse leaves
+}
 function closePops() {
   for (const r of Object.values(laneRefs)) { r.pop.root.hidden = true; r.fbtn.setAttribute('aria-expanded', 'false'); }
 }
@@ -659,6 +671,11 @@ function renderLanes(all, now, force) {
     if (filterCount(c.f)) arr = arr.filter((t) => passesFilters(t, now, c.f));
     arr.sort(SORT[L.id]);
     const ref = laneRefs[L.id];
+    if (ref.paused && !force) {
+      const waiting = arr.filter((t) => !ref.rows.has(t.mint)).length;
+      ref.pz.textContent = waiting ? `⏸ Paused · ${waiting} new` : '⏸ Paused';
+      continue;
+    }
     ref.n.textContent = arr.length > 40 ? '40+' : String(arr.length);
     syncList(ref.list, ref.rows, arr.slice(0, 40), force, q ? 'No token matches that search.' : filterCount(c.f) ? 'No token matches this lane\'s filters. Loosen or clear them.' : L.empty,
       (t) => { const r = makeCard(t); r._lane = L.id; return r; }, updateCard);
@@ -671,6 +688,7 @@ function setView(v, mint) {
   $('#layout').hidden = S.view !== 'trade';
   if (S.view === 'dash') { try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ } }
   document.querySelectorAll('#views button').forEach((b) => b.classList.toggle('on', b.dataset.view === S.view));
+  for (const r of Object.values(laneRefs)) { r.paused = false; r.pz.hidden = true; }
   if (mint) select(mint);
   renderBoard(true);
 }

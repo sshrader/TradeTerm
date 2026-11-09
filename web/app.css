@@ -473,3 +473,7 @@ tr.click:hover td { background: rgb(var(--acc) / 0.07); }
 .theme { width: 16px; height: 16px; border-radius: 50%; border: 2px solid transparent; padding: 0; background: var(--sw); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2); }
 .theme:hover { transform: scale(1.15); }
 .theme.on { border-color: #fff; box-shadow: 0 0 0 1px var(--sw); }
+
+/* ---------- lane pause indicator ---------- */
+.lpause { font-size: 11px; font-weight: 700; color: var(--amber); background: rgba(255, 194, 75, 0.12); border-radius: 6px; padding: 1px 7px; }
+.lpause[hidden] { display: none; }
